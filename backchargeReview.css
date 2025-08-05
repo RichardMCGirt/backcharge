@@ -82,6 +82,11 @@ button:last-of-type {
   font-size: 18px;
   color: black; /* Dark blue for emphasis */
 }
+.decision-buttons {
+  display: flex;
+  gap: 42px; /* space between buttons */
+  margin-top: 10px;
+}
 
 
 button:last-of-type:hover {

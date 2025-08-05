@@ -156,11 +156,17 @@ function renderReviews() {
   <p><strong>Branch:</strong> ${branch}</p>
   <p><strong>Reason:</strong> ${reason}</p>
   <p><strong>Amount:</strong> ${amount}</p>
+${photoCount > 0 ? `
   <p><strong>Photos:</strong> 
-    ${photoCount > 0 ? `<a href="#" class="photo-link" data-id="${record.id}">${photoCount} image(s)</a>` : "0"}
+    <a href="#" class="photo-link" data-id="${record.id}">${photoCount} image(s)</a>
   </p>
+` : ""}
+
+<div class="decision-buttons">
   <button onclick="updateDecision('${record.id}', 'Approve')">Approve</button>
   <button onclick="updateDecision('${record.id}', 'Dispute')">Dispute</button>
+</div>
+
 `;
 
     container.appendChild(div);
