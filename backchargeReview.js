@@ -95,6 +95,28 @@ function renderReviews() {
     });
   }
 
+  // 🔍 Apply search filter
+  const searchTerm = document.getElementById("searchBar")?.value.toLowerCase() || "";
+  if (searchTerm) {
+    records = records.filter(rec => {
+      const jobName = (rec.fields["Job Name"] || "").toLowerCase();
+      const subcontractor = (rec.fields["Subcontractor to Backcharge"] || [])
+        .map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ").toLowerCase();
+      const customer = (rec.fields["Customer"] || [])
+        .map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ").toLowerCase();
+      const technician = (rec.fields["Field Technician"] || [])
+        .map(id => getCachedRecord(TECH_TABLE, id)).join(", ").toLowerCase();
+      const branch = (rec.fields["Vanir Branch"] || [])
+        .map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ").toLowerCase();
+
+      return jobName.includes(searchTerm) ||
+             subcontractor.includes(searchTerm) ||
+             customer.includes(searchTerm) ||
+             technician.includes(searchTerm) ||
+             branch.includes(searchTerm);
+    });
+  }
+
   const container = document.getElementById("reviewContainer");
   container.innerHTML = "";
 
@@ -113,6 +135,7 @@ function renderReviews() {
     let branch = (fields["Vanir Branch"] || [])
       .map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ");
 
+    const jobName = fields["Job Name"] || "";
     const reason = fields["Reason for Backcharge"] || "";
     let amount = fields["Backcharge Amount"] || "";
     if (amount !== "") {
@@ -122,6 +145,7 @@ function renderReviews() {
     const div = document.createElement("div");
     div.classList.add("review-card");
     div.innerHTML = `
+      <p><strong>Job Name:</strong> ${jobName}</p>
       <p><strong>Subcontractor:</strong> ${subcontractor}</p>
       <p><strong>Customer:</strong> ${customer}</p>
       <p><strong>Technician:</strong> ${technician}</p>
@@ -134,6 +158,7 @@ function renderReviews() {
     container.appendChild(div);
   }
 }
+
 function populateFilterDropdowns() {
   const techSet = new Set();
   const branchSet = new Set();
@@ -222,5 +247,12 @@ document.addEventListener("DOMContentLoaded", () => {
       renderReviews();
     });
   }
+  const searchBar = document.getElementById("searchBar");
+if (searchBar) {
+  searchBar.addEventListener("input", () => {
+    renderReviews();
+  });
+}
+
 });
 

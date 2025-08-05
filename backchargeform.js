@@ -129,8 +129,6 @@ document.getElementById("branch").addEventListener("change", e => {
   }
 });
 
-
-
 // Populate branch dropdown
 function populateBranchDropdown(branches) {
   const branchSelect = document.getElementById("branch");
@@ -157,6 +155,7 @@ document.getElementById("backchargeForm").addEventListener("submit", async (e) =
   const customer = document.querySelector("#customer").value;
   const technician = document.querySelector("#technician").value;
   const branch = document.querySelector("#branch").value;
+  const jobName = document.querySelector("#jobName").value;
 
   const reason = document.querySelector("#reason").value;
   const amount = parseFloat(document.querySelector("#amount").value);
@@ -167,6 +166,7 @@ document.getElementById("backchargeForm").addEventListener("submit", async (e) =
       "Customer": [await findRecordId(CUSTOMER_TABLE, "Client Name", customer)],
       "Field Technician": [await findRecordId(TECH_TABLE, "Full Name", technician)],
       "Vanir Branch": [await findRecordId(BRANCH_TABLE, "Office Name", branch)],
+      "Job Name": jobName,
       "Reason for Backcharge": reason,
       "Backcharge Amount": amount
     }
@@ -188,6 +188,7 @@ document.getElementById("backchargeForm").addEventListener("submit", async (e) =
     alert("Error submitting backcharge.");
   }
 });
+
 
 // Helper: find recordId by name
 async function findRecordId(tableId, fieldName, value) {
