@@ -30,11 +30,6 @@ h2 {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.review-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 6px 14px rgba(0,0,0,0.12);
-}
-
 .review-card p {
   margin: 8px 0;
   font-size: 15px;
