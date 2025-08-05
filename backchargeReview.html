@@ -3,30 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <title>Review Backcharges</title>
-    <link rel="stylesheet" href="backchargeReview.css">
-
+  <link rel="stylesheet" href="backchargeReview.css">
 </head>
 <body>
-     <nav class="navbar">
-  <ul class="nav-links" id="navLinks">
-    <li><a href="index.html">Submit Backcharge</a></li>
-  </ul>
-</nav>
+  <!-- Navbar with button -->
+    <button class="nav-button" onclick="location.href='index.html'">Submit Backcharge</button>
 
   <h2>Backcharge Review</h2>
+
+  <!-- Filters centered -->
   <div class="filter-container">
-  <button id="hamburgerToggle">☰ Filters</button>
-  <div id="hamburgerMenu" class="hamburger-menu">
-    <label for="techFilter">Filter by Technician:</label>
-    <select id="techFilter"></select>
+    <div class="filter-controls">
+      <button id="hamburgerToggle">☰ Filters</button>
+      <input type="text" id="searchBar" placeholder="Search by Job Name, Subcontractor, Customer, Technician, or Branch">
+    </div>
+    <div id="hamburgerMenu" class="hamburger-menu">
+      <label for="techFilter">Filter by Technician:</label>
+      <select id="techFilter"></select>
 
-    <label for="branchFilter">Filter by Branch:</label>
-    <select id="branchFilter"></select>
+      <label for="branchFilter">Filter by Branch:</label>
+      <select id="branchFilter"></select>
+    </div>
   </div>
-</div>
-<input type="text" id="searchBar" placeholder="Search by Job Name, Subcontractor, Customer, Technician, or Branch">
 
-<div id="reviewContainer"></div>
+  <div id="reviewContainer"></div>
 
   <script src="backchargeReview.js"></script>
 </body>
