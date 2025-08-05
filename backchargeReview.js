@@ -128,8 +128,8 @@ function renderReviews() {
       <p><strong>Branch:</strong> ${branch}</p>
       <p><strong>Reason:</strong> ${reason}</p>
       <p><strong>Amount:</strong> ${amount}</p>
-      <button onclick="updateDecision('${record.id}', 'Agree')">Agree</button>
-      <button onclick="updateDecision('${record.id}', 'Disagree')">Disagree</button>
+      <button onclick="updateDecision('${record.id}', 'Approve')">Approve</button>
+      <button onclick="updateDecision('${record.id}', 'Dispute')">Dispute</button>
     `;
     container.appendChild(div);
   }
