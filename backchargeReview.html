@@ -9,24 +9,25 @@
   <!-- Navbar with button -->
 
   <h2>Backcharge Review</h2>
-              <button class="nav-button" onclick="location.href='index.html'">Submit Backcharge</button>
 
   <!-- Filters centered -->
-  <div class="filter-container">
-    <div class="filter-controls">
-      <button id="hamburgerToggle">☰ Filters</button>
-      <input type="text" id="searchBar" placeholder="Search by Job Name, Subcontractor, Customer, Technician, or Branch">
-    </div>
-    <div id="hamburgerMenu" class="hamburger-menu">
-      <label for="techFilter">Filter by Technician:</label>
-      <select id="techFilter"></select>
-
-      <label for="branchFilter">Filter by Branch:</label>
-      <select id="branchFilter"></select>
-
-    </div>
-
+  <!-- Navbar with filters + nav button -->
+<div class="filter-container">
+  <div class="filter-controls">
+    <button id="hamburgerToggle">☰ Filters</button>
+    <input type="text" id="searchBar" placeholder="Search by Job Name, Subcontractor, Customer, Technician, or Branch">
+    <button class="nav-button" onclick="location.href='index.html'">Submit Backcharge</button>
   </div>
+
+  <div id="hamburgerMenu" class="hamburger-menu">
+    <label for="techFilter">Filter by Technician:</label>
+    <select id="techFilter"></select>
+
+    <label for="branchFilter">Filter by Branch:</label>
+    <select id="branchFilter"></select>
+  </div>
+</div>
+
 
   <div id="reviewContainer"></div>
 <!-- Photo Modal -->
