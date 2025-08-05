@@ -149,19 +149,20 @@ function renderReviews() {
     const div = document.createElement("div");
     div.classList.add("review-card");
     div.innerHTML = `
-      <p><strong>Job Name:</strong> ${jobName}</p>
-      <p><strong>Subcontractor:</strong> ${subcontractor}</p>
-      <p><strong>Customer:</strong> ${customer}</p>
-      <p><strong>Technician:</strong> ${technician}</p>
-      <p><strong>Branch:</strong> ${branch}</p>
-      <p><strong>Reason:</strong> ${reason}</p>
-      <p><strong>Amount:</strong> ${amount}</p>
-      <p><strong>Photos:</strong> 
-        ${photoCount > 0 ? `<a href="#" class="photo-link" data-id="${record.id}">${photoCount} image(s)</a>` : "0"}
-      </p>
-      <button onclick="updateDecision('${record.id}', 'Approve')">Approve</button>
-      <button onclick="updateDecision('${record.id}', 'Dispute')">Dispute</button>
-    `;
+  <p><strong>Job Name:</strong> <span class="job-name">${jobName}</span></p>
+  <p><strong>Subcontractor:</strong> ${subcontractor}</p>
+  <p><strong>Customer:</strong> ${customer}</p>
+  <p><strong>Technician:</strong> ${technician}</p>
+  <p><strong>Branch:</strong> ${branch}</p>
+  <p><strong>Reason:</strong> ${reason}</p>
+  <p><strong>Amount:</strong> ${amount}</p>
+  <p><strong>Photos:</strong> 
+    ${photoCount > 0 ? `<a href="#" class="photo-link" data-id="${record.id}">${photoCount} image(s)</a>` : "0"}
+  </p>
+  <button onclick="updateDecision('${record.id}', 'Approve')">Approve</button>
+  <button onclick="updateDecision('${record.id}', 'Dispute')">Dispute</button>
+`;
+
     container.appendChild(div);
 
     // Attach photo modal event
