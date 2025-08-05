@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Review Backcharges</title>
+    <link rel="stylesheet" href="backchargeReview.css">
+
+</head>
+<body>
+     <nav class="navbar">
+  <ul class="nav-links" id="navLinks">
+    <li><a href="backchargeReview.html">Review Backcharges</a></li>
+    <li><a href="index.html">All open backcharges</a></li>
+  </ul>
+</nav>
+  <h2>Backcharge Review</h2>
+  <div class="filter-container">
+  <button id="hamburgerToggle">☰ Filters</button>
+  <div id="hamburgerMenu" class="hamburger-menu">
+    <label for="techFilter">Filter by Technician:</label>
+    <select id="techFilter"></select>
+
+    <label for="branchFilter">Filter by Branch:</label>
+    <select id="branchFilter"></select>
+  </div>
+</div>
+
+<div id="reviewContainer"></div>
+
+  <script src="backchargeReview.js"></script>
+</body>
+</html>
