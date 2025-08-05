@@ -142,6 +142,10 @@ function renderReviews() {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
+    // 📷 Field Photos
+    const photos = fields["Photos"] || [];
+    const photoCount = photos.length;
+
     const div = document.createElement("div");
     div.classList.add("review-card");
     div.innerHTML = `
@@ -152,12 +156,48 @@ function renderReviews() {
       <p><strong>Branch:</strong> ${branch}</p>
       <p><strong>Reason:</strong> ${reason}</p>
       <p><strong>Amount:</strong> ${amount}</p>
+      <p><strong>Photos:</strong> 
+        ${photoCount > 0 ? `<a href="#" class="photo-link" data-id="${record.id}">${photoCount} image(s)</a>` : "0"}
+      </p>
       <button onclick="updateDecision('${record.id}', 'Approve')">Approve</button>
       <button onclick="updateDecision('${record.id}', 'Dispute')">Dispute</button>
     `;
     container.appendChild(div);
+
+    // Attach photo modal event
+    if (photoCount > 0) {
+      div.querySelector(".photo-link").addEventListener("click", e => {
+        e.preventDefault();
+        openPhotoModal(photos);
+      });
+    }
   }
 }
+
+
+function openPhotoModal(photos) {
+  const modal = document.getElementById("photoModal");
+  const gallery = document.getElementById("photoGallery");
+  const closeBtn = modal.querySelector(".close");
+
+  gallery.innerHTML = "";
+  photos.forEach(p => {
+    const img = document.createElement("img");
+    img.src = p.url;
+    img.alt = "Field Photo";
+    img.classList.add("modal-photo");
+    gallery.appendChild(img);
+  });
+
+  modal.style.display = "block";
+
+  // Close handlers
+  closeBtn.onclick = () => modal.style.display = "none";
+  window.onclick = (event) => {
+    if (event.target === modal) modal.style.display = "none";
+  };
+}
+
 
 function populateFilterDropdowns() {
   const techSet = new Set();
