@@ -88,7 +88,6 @@ button:last-of-type {
   margin-top: 10px;
 }
 
-
 button:last-of-type:hover {
   background-color: #a62626;
 }
@@ -323,4 +322,37 @@ button:last-of-type:hover {
   #searchBar {
     width: 100%;
   }
+}
+/* Modal action buttons */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.modal-actions button {
+  padding: 8px 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+#confirmDecisionBtn {
+  background-color: #007b5e; /* green */
+  color: white;
+}
+
+#confirmDecisionBtn:hover {
+  background-color: #00664d;
+}
+
+#cancelDecisionBtn {
+  background-color: #cc2f2f; /* red */
+  color: white;
+}
+
+#cancelDecisionBtn:hover {
+  background-color: #a62626;
 }

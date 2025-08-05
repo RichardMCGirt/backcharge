@@ -150,10 +150,10 @@ function renderReviews() {
     div.classList.add("review-card");
     div.innerHTML = `
   <p><strong>Job Name:</strong> <span class="job-name">${jobName}</span></p>
-  <p><strong>Subcontractor:</strong> ${subcontractor}</p>
-  <p><strong>Customer:</strong> ${customer}</p>
-  <p><strong>Technician:</strong> ${technician}</p>
   <p><strong>Branch:</strong> ${branch}</p>
+  <p><strong>Customer:</strong> ${customer}</p>
+  <p><strong>Subcontractor:</strong> ${subcontractor}</p>
+  <p><strong>Technician:</strong> ${technician}</p>
   <p><strong>Reason:</strong> ${reason}</p>
   <p><strong>Amount:</strong> ${amount}</p>
 ${photoCount > 0 ? `
@@ -163,9 +163,10 @@ ${photoCount > 0 ? `
 ` : ""}
 
 <div class="decision-buttons">
-  <button onclick="updateDecision('${record.id}', 'Approve')">Approve</button>
-  <button onclick="updateDecision('${record.id}', 'Dispute')">Dispute</button>
+  <button onclick="openDecisionModal('${record.id}', 'Approve')">Approve</button>
+  <button onclick="openDecisionModal('${record.id}', 'Dispute')">Dispute</button>
 </div>
+
 
 `;
 
@@ -234,23 +235,90 @@ function populateFilterDropdowns() {
   });
 }
 
-async function updateDecision(recordId, decision) {
-  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${recordId}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      fields: { "Decision": decision }
-    })
-  });
+let pendingDecision = null;
+let pendingRecordId = null;
 
-  if (res.ok) {
-    alert(`Marked as ${decision}`);
-    fetchBackcharges();
+function openDecisionModal(recordId, decision) {
+  pendingRecordId = recordId;
+  pendingDecision = decision;
+
+  const modal = document.getElementById("decisionModal");
+  const title = document.getElementById("decisionTitle");
+  const message = document.getElementById("decisionMessage");
+  const confirmBtn = document.getElementById("confirmDecisionBtn");
+
+  // Find job name for display
+  const record = allRecords.find(r => r.id === recordId);
+  const jobName = record?.fields["Job Name"] || "Unknown Job";
+
+  title.textContent = `Confirm ${decision}`;
+  message.innerHTML = `
+    Are you sure you want to mark 
+    <strong>${jobName}</strong> 
+    as "<strong>${decision}</strong>"?
+  `;
+
+  // ✅ Update button text + color
+  if (decision === "Approve") {
+    confirmBtn.textContent = "Yes, Approve";
+    confirmBtn.style.backgroundColor = "#007b5e"; // green
+    confirmBtn.style.color = "#fff";
+  } else if (decision === "Dispute") {
+    confirmBtn.textContent = "Dispute";
+    confirmBtn.style.backgroundColor = "#cc2f2f"; // red
+    confirmBtn.style.color = "#fff";
   }
+
+  modal.style.display = "block";
 }
+
+
+
+
+// Handle modal confirm/cancel
+document.addEventListener("DOMContentLoaded", () => {
+  const modal = document.getElementById("decisionModal");
+  const closeBtn = modal.querySelector(".close");
+  const confirmBtn = document.getElementById("confirmDecisionBtn");
+  const cancelBtn = document.getElementById("cancelDecisionBtn");
+
+  closeBtn.onclick = () => modal.style.display = "none";
+  cancelBtn.onclick = () => modal.style.display = "none";
+
+  confirmBtn.onclick = async () => {
+    if (!pendingRecordId || !pendingDecision) return;
+
+    const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        fields: { "Approve or Dispute": pendingDecision }
+      })
+    });
+
+    if (res.ok) {
+      alert(`Marked as ${pendingDecision}`);
+      fetchBackcharges();
+    } else {
+      const error = await res.json();
+      console.error("❌ Airtable error:", error);
+      alert(`Failed to update record: ${error.error?.message || JSON.stringify(error)}`);
+    }
+
+    modal.style.display = "none";
+    pendingDecision = null;
+    pendingRecordId = null;
+  };
+
+  window.onclick = (event) => {
+    if (event.target === modal) modal.style.display = "none";
+  };
+});
+
+
 
 // Init
 (async () => {
