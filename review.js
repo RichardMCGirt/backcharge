@@ -15,6 +15,8 @@ let currentSort = ""; // track selected sort option
 let currentFilter = { type: null, value: null }; // track filter selection
 let activeTechFilter = null;
 let activeBranchFilter = null;
+let pendingDecision = null;
+let pendingRecordId = null;
 
 async function fetchAllRecords(tableId, keyFields) {
   let records = [];
@@ -211,32 +213,55 @@ function populateFilterDropdowns() {
   const techSet = new Set();
   const branchSet = new Set();
 
+  // Collect all branch names
   for (const rec of allRecords) {
-    (rec.fields["Field Technician"] || []).forEach(id => {
-      techSet.add(getCachedRecord(TECH_TABLE, id));
-    });
     (rec.fields["Vanir Branch"] || []).forEach(id => {
       branchSet.add(getCachedRecord(BRANCH_TABLE, id));
     });
   }
 
-  const techFilter = document.getElementById("techFilter");
+  // Populate branch dropdown
   const branchFilter = document.getElementById("branchFilter");
-
-  techFilter.innerHTML = `<option value="">-- All Technicians --</option>`;
   branchFilter.innerHTML = `<option value="">-- All Branches --</option>`;
+  [...branchSet].sort().forEach(name => {
+    branchFilter.innerHTML += `<option value="${name}">${name}</option>`;
+  });
 
+  // Call tech filter update separately so it depends on branch
+  updateTechDropdown();
+}
+
+function updateTechDropdown() {
+  const branchFilter = document.getElementById("branchFilter");
+  const selectedBranch = branchFilter?.value || "";
+
+  const techSet = new Set();
+
+  for (const rec of allRecords) {
+    const recordBranches = (rec.fields["Vanir Branch"] || [])
+      .map(id => getCachedRecord(BRANCH_TABLE, id));
+    const recordTechs = (rec.fields["Field Technician"] || [])
+      .map(id => getCachedRecord(TECH_TABLE, id));
+
+    if (!selectedBranch || recordBranches.includes(selectedBranch)) {
+      recordTechs.forEach(t => techSet.add(t));
+    }
+  }
+
+  const techFilter = document.getElementById("techFilter");
+  techFilter.innerHTML = `<option value="">-- All Technicians --</option>`;
   [...techSet].sort().forEach(name => {
     techFilter.innerHTML += `<option value="${name}">${name}</option>`;
   });
 
-  [...branchSet].sort().forEach(name => {
-    branchFilter.innerHTML += `<option value="${name}">${name}</option>`;
-  });
+  // Restore saved tech filter if still valid
+  if (activeTechFilter && techSet.has(activeTechFilter)) {
+    techFilter.value = activeTechFilter;
+  } else {
+    activeTechFilter = null;
+    localStorage.removeItem("techFilter");
+  }
 }
-
-let pendingDecision = null;
-let pendingRecordId = null;
 
 function openDecisionModal(recordId, decision) {
   pendingRecordId = recordId;
@@ -393,10 +418,10 @@ if (branchFilter) {
       activeBranchFilter = null;
       localStorage.removeItem("branchFilter");
     }
+    updateTechDropdown(); // 🔥 refresh tech list
     renderReviews();
   });
 }
-
 
 if (searchBar) {
   searchBar.addEventListener("input", e => {
