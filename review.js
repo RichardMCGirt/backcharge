@@ -13,6 +13,8 @@ const recordCache = {};
 let allRecords = []; // store globally
 let currentSort = ""; // track selected sort option
 let currentFilter = { type: null, value: null }; // track filter selection
+let activeTechFilter = null;
+let activeBranchFilter = null;
 
 async function fetchAllRecords(tableId, keyFields) {
   let records = [];
@@ -47,7 +49,7 @@ async function preloadLinkedTables() {
   await fetchAllRecords(SUBCONTRACTOR_TABLE, ["Subcontractor Company Name"]);
   await fetchAllRecords(CUSTOMER_TABLE, ["Client Name"]);
   await fetchAllRecords(TECH_TABLE, ["Full Name"]);
-  await fetchAllRecords(BRANCH_TABLE, ["Office Name"]); // adjust to actual field name in tblD2gLfkTtJYIhmK
+  await fetchAllRecords(BRANCH_TABLE, ["Office Name"]); 
 }
 
 function getCachedRecord(tableId, recordId) {
@@ -60,7 +62,7 @@ async function fetchBackcharges() {
   let offset = null;
 
   do {
-    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?view=viwTHoVVR3TsPDR6k`;
+    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=OR({Approve or Dispute}="", NOT({Approve or Dispute}))`;
     if (offset) url += `&offset=${offset}`;
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
@@ -74,28 +76,30 @@ async function fetchBackcharges() {
   renderReviews();
 }
 
+
 // Render cards with optional sorting
 function renderReviews() {
   let records = [...allRecords];
 
-  // Apply filter if set
-  if (currentFilter.type === "tech") {
+  // Apply tech filter if set
+  if (activeTechFilter) {
     records = records.filter(rec => {
       const techs = (rec.fields["Field Technician"] || [])
         .map(id => getCachedRecord(TECH_TABLE, id));
-      return techs.includes(currentFilter.value);
+      return techs.includes(activeTechFilter);
     });
   }
 
-  if (currentFilter.type === "branch") {
+  // Apply branch filter if set
+  if (activeBranchFilter) {
     records = records.filter(rec => {
       const branches = (rec.fields["Vanir Branch"] || [])
         .map(id => getCachedRecord(BRANCH_TABLE, id));
-      return branches.includes(currentFilter.value);
+      return branches.includes(activeBranchFilter);
     });
   }
 
-  // 🔍 Apply search filter
+  // 🔍 search logic stays same
   const searchTerm = document.getElementById("searchBar")?.value.toLowerCase() || "";
   if (searchTerm) {
     records = records.filter(rec => {
@@ -166,8 +170,6 @@ ${photoCount > 0 ? `
   <button onclick="openDecisionModal('${record.id}', 'Approve')">Approve</button>
   <button onclick="openDecisionModal('${record.id}', 'Dispute')">Dispute</button>
 </div>
-
-
 `;
 
     container.appendChild(div);
@@ -181,7 +183,6 @@ ${photoCount > 0 ? `
     }
   }
 }
-
 
 function openPhotoModal(photos) {
   const modal = document.getElementById("photoModal");
@@ -205,7 +206,6 @@ function openPhotoModal(photos) {
     if (event.target === modal) modal.style.display = "none";
   };
 }
-
 
 function populateFilterDropdowns() {
   const techSet = new Set();
@@ -271,8 +271,14 @@ function openDecisionModal(recordId, decision) {
 
   modal.style.display = "block";
 }
-
-
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.className = "show";
+  setTimeout(() => {
+    toast.className = toast.className.replace("show", "");
+  }, 2000); // hide after 2s
+}
 
 
 // Handle modal confirm/cancel
@@ -280,52 +286,76 @@ document.addEventListener("DOMContentLoaded", () => {
   const modal = document.getElementById("decisionModal");
   const closeBtn = modal.querySelector(".close");
   const confirmBtn = document.getElementById("confirmDecisionBtn");
-  const cancelBtn = document.getElementById("cancelDecisionBtn");
 
   closeBtn.onclick = () => modal.style.display = "none";
-  cancelBtn.onclick = () => modal.style.display = "none";
 
-  confirmBtn.onclick = async () => {
-    if (!pendingRecordId || !pendingDecision) return;
+ confirmBtn.onclick = async () => {
+  if (!pendingRecordId || !pendingDecision) return;
 
-    const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        fields: { "Approve or Dispute": pendingDecision }
-      })
-    });
+  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      fields: { "Approve or Dispute": pendingDecision }
+    })
+  });
 
-    if (res.ok) {
-      alert(`Marked as ${pendingDecision}`);
-      fetchBackcharges();
-    } else {
-      const error = await res.json();
-      console.error("❌ Airtable error:", error);
-      alert(`Failed to update record: ${error.error?.message || JSON.stringify(error)}`);
-    }
+  if (res.ok) {
+    const record = allRecords.find(r => r.id === pendingRecordId);
+    const jobName = record?.fields["Job Name"] || "Unknown Job";
 
-    modal.style.display = "none";
-    pendingDecision = null;
-    pendingRecordId = null;
-  };
+    showToast(`${jobName} marked as ${pendingDecision}`);
+    fetchBackcharges();
+  } else {
+    const error = await res.json();
+    console.error("❌ Airtable error:", error);
+    alert(`Failed to update record: ${error.error?.message || JSON.stringify(error)}`);
+  }
+
+  modal.style.display = "none";
+  pendingDecision = null;
+  pendingRecordId = null;
+};
 
   window.onclick = (event) => {
     if (event.target === modal) modal.style.display = "none";
   };
 });
 
-
-
 // Init
 (async () => {
   await preloadLinkedTables();
   await fetchBackcharges();
   populateFilterDropdowns();
+  restoreFilters(); // ✅ apply saved filters
 })();
+
+function restoreFilters() {
+  const savedTech = localStorage.getItem("techFilter");
+  const savedBranch = localStorage.getItem("branchFilter");
+
+  if (savedTech) {
+    const techFilter = document.getElementById("techFilter");
+    if (techFilter) {
+      techFilter.value = savedTech;
+      activeTechFilter = savedTech;
+    }
+  }
+
+  if (savedBranch) {
+    const branchFilter = document.getElementById("branchFilter");
+    if (branchFilter) {
+      branchFilter.value = savedBranch;
+      activeBranchFilter = savedBranch;
+    }
+  }
+
+  renderReviews();
+}
+
 
 // Hamburger toggle
 document.addEventListener("DOMContentLoaded", () => {
@@ -341,30 +371,35 @@ document.addEventListener("DOMContentLoaded", () => {
   const techFilter = document.getElementById("techFilter");
   const branchFilter = document.getElementById("branchFilter");
 
-  if (techFilter) {
-    techFilter.addEventListener("change", e => {
-      if (e.target.value) {
-        currentFilter = { type: "tech", value: e.target.value };
-      } else {
-        currentFilter = { type: null, value: null };
-      }
-      renderReviews();
-    });
-  }
+if (techFilter) {
+  techFilter.addEventListener("change", e => {
+    if (e.target.value) {
+      activeTechFilter = e.target.value;
+      localStorage.setItem("techFilter", e.target.value);
+    } else {
+      activeTechFilter = null;
+      localStorage.removeItem("techFilter");
+    }
+    renderReviews();
+  });
+}
 
-  if (branchFilter) {
-    branchFilter.addEventListener("change", e => {
-      if (e.target.value) {
-        currentFilter = { type: "branch", value: e.target.value };
-      } else {
-        currentFilter = { type: null, value: null };
-      }
-      renderReviews();
-    });
-  }
-  const searchBar = document.getElementById("searchBar");
+if (branchFilter) {
+  branchFilter.addEventListener("change", e => {
+    if (e.target.value) {
+      activeBranchFilter = e.target.value;
+      localStorage.setItem("branchFilter", e.target.value);
+    } else {
+      activeBranchFilter = null;
+      localStorage.removeItem("branchFilter");
+    }
+    renderReviews();
+  });
+}
+
+
 if (searchBar) {
-  searchBar.addEventListener("input", () => {
+  searchBar.addEventListener("input", e => {
     renderReviews();
   });
 }
