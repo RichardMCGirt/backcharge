@@ -17,6 +17,7 @@ let activeTechFilter = null;
 let activeBranchFilter = null;
 let pendingDecision = null;
 let pendingRecordId = null;
+let hasRestoredFilters = false;
 
 async function fetchAllRecords(tableId, keyFields) {
   let records = [];
@@ -213,25 +214,24 @@ function populateFilterDropdowns() {
   const techSet = new Set();
   const branchSet = new Set();
 
-  // Collect all branch names
   for (const rec of allRecords) {
     (rec.fields["Vanir Branch"] || []).forEach(id => {
       branchSet.add(getCachedRecord(BRANCH_TABLE, id));
     });
   }
 
-  // Populate branch dropdown
   const branchFilter = document.getElementById("branchFilter");
   branchFilter.innerHTML = `<option value="">-- All Branches --</option>`;
   [...branchSet].sort().forEach(name => {
     branchFilter.innerHTML += `<option value="${name}">${name}</option>`;
   });
 
-  // Call tech filter update separately so it depends on branch
-  updateTechDropdown();
+  // ✅ Now call with skipClear = true so restoreFilters() runs after this
+  updateTechDropdown(true);
 }
 
-function updateTechDropdown() {
+
+function updateTechDropdown(skipClear = false) {
   const branchFilter = document.getElementById("branchFilter");
   const selectedBranch = branchFilter?.value || "";
 
@@ -254,12 +254,33 @@ function updateTechDropdown() {
     techFilter.innerHTML += `<option value="${name}">${name}</option>`;
   });
 
-  // Restore saved tech filter if still valid
-  if (activeTechFilter && techSet.has(activeTechFilter)) {
+  if (activeTechFilter) {
     techFilter.value = activeTechFilter;
-  } else {
+
+    const optionExists = Array.from(techFilter.options).some(opt => opt.value === activeTechFilter);
+    if (!optionExists) {
+      const opt = document.createElement("option");
+      opt.value = activeTechFilter;
+      opt.textContent = activeTechFilter;
+      techFilter.appendChild(opt);
+    }
+
+    if (!localStorage.getItem("techFilter")) {
+      localStorage.setItem("techFilter", activeTechFilter);
+      console.log("💾 Saved tech filter to localStorage:", activeTechFilter);
+    }
+  }
+
+  if (!skipClear && !techSet.has(activeTechFilter)) {
     activeTechFilter = null;
     localStorage.removeItem("techFilter");
+  }
+
+  // ✅ Prevent infinite loop
+  if (skipClear && !hasRestoredFilters) {
+    hasRestoredFilters = true;
+    console.log("✅ Calling restoreFilters() from updateTechDropdown()");
+    restoreFilters();
   }
 }
 
@@ -303,6 +324,13 @@ function showToast(message) {
   setTimeout(() => {
     toast.className = toast.className.replace("show", "");
   }, 2000); // hide after 2s
+}
+function showLoading() {
+  document.getElementById("loadingOverlay").style.display = "flex";
+}
+
+function hideLoading() {
+  document.getElementById("loadingOverlay").style.display = "none";
 }
 
 
@@ -352,34 +380,58 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // Init
 (async () => {
+  showLoading();
   await preloadLinkedTables();
   await fetchBackcharges();
-  populateFilterDropdowns();
-  restoreFilters(); // ✅ apply saved filters
+  populateFilterDropdowns(); 
+  hideLoading();
 })();
+
+
 
 function restoreFilters() {
   const savedTech = localStorage.getItem("techFilter");
   const savedBranch = localStorage.getItem("branchFilter");
 
-  if (savedTech) {
-    const techFilter = document.getElementById("techFilter");
-    if (techFilter) {
-      techFilter.value = savedTech;
-      activeTechFilter = savedTech;
-    }
-  }
+  console.log("🔁 Restoring saved filters...");
+  console.log("📦 Saved tech filter:", savedTech);
+  console.log("📦 Saved branch filter:", savedBranch);
 
+  // Restore branch first
   if (savedBranch) {
     const branchFilter = document.getElementById("branchFilter");
     if (branchFilter) {
       branchFilter.value = savedBranch;
       activeBranchFilter = savedBranch;
+      console.log("✅ Branch filter restored to:", savedBranch);
+    } else {
+      console.warn("⚠️ Could not find branchFilter element.");
     }
+  } else {
+    console.log("ℹ️ No saved branch filter found.");
   }
 
+  // Restore tech before updating dropdown
+  if (savedTech) {
+    const techFilter = document.getElementById("techFilter");
+    if (techFilter) {
+      techFilter.value = savedTech;
+      activeTechFilter = savedTech;
+      console.log("✅ Tech filter restored to:", savedTech);
+    } else {
+      console.warn("⚠️ Could not find techFilter element.");
+    }
+  } else {
+    console.log("ℹ️ No saved tech filter found.");
+  }
+
+  console.log("🔄 Updating tech dropdown with restored filters...");
+  updateTechDropdown(true); // 🔄 rebuild dropdown with filter already set
+
+  console.log("📋 Rendering reviews with current filters...");
   renderReviews();
 }
+
 
 
 // Hamburger toggle
@@ -408,6 +460,7 @@ if (techFilter) {
     renderReviews();
   });
 }
+
 
 if (branchFilter) {
   branchFilter.addEventListener("change", e => {
