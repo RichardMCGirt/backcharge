@@ -158,9 +158,9 @@ function renderReviews() {
     div.innerHTML = `
   <p><strong>Job Name:</strong> <span class="job-name">${jobName}</span></p>
   <p><strong>Branch:</strong> ${branch}</p>
-  <p><strong>Customer:</strong> ${customer}</p>
-  <p><strong>Subcontractor:</strong> ${subcontractor}</p>
   <p><strong>Technician:</strong> ${technician}</p>
+  <p><strong>Customer:</strong> ${customer}</p>
+  <p><strong>Subcontractor to backcharge:</strong> ${subcontractor}</p>
   <p><strong>Reason:</strong> ${reason}</p>
   <p><strong>Amount:</strong> ${amount}</p>
 ${photoCount > 0 ? `
