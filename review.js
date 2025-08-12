@@ -3,7 +3,7 @@
 ========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
-const TABLE_ID = "tblg98QfBxRd6uivq";
+const TABLE_ID = "tbl1LwBCXM0DYQSJH";
 
 // Linked tables
 const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb";
@@ -191,11 +191,9 @@ const techChip = (technician && technician !== activeTechFilter)
   ${branchChip}
   ${techChip}
   ${customer ? `<span class="chip">Customer: ${customer}</span>` : ""}
-  ${subcontractor ? `<span class="chip">Sub: ${subcontractor}</span>` : ""}
+  ${subcontractor ? `<span class="chip">Subcontractor: ${subcontractor}</span>` : ""}
   ${amount ? `<span class="chip">Amount: ${amount}</span>` : ""}
 </div>
-
-
 ${
   reason || photoCount > 0
     ? `
@@ -210,7 +208,6 @@ ${
   `
     : ""
 }
-
       <div class="decision-buttons">
         <button class="dispute" data-action="Dispute">Dispute</button>
         <button class="approve" data-action="Approve">Approve</button>
@@ -350,22 +347,63 @@ function openDecisionSheet(recordId, jobName, decision) {
   const msg = document.getElementById("decisionMessage");
   const approveBtn = document.getElementById("confirmApproveBtn");
   const disputeBtn = document.getElementById("confirmDisputeBtn");
+  const backdrop = document.getElementById("sheetBackdrop");
 
-  title.textContent = `Confirm ${decision}`;
+  title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
   msg.innerHTML = `Are you sure you want to mark <strong>${jobName || "Unknown Job"}</strong> as "<strong>${decision}</strong>"?`;
 
+  // Show only the relevant button
   approveBtn.style.display = decision === "Approve" ? "block" : "none";
   disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
 
+  // Add attention pulse to the active action
+  approveBtn.classList.toggle("attn", decision === "Approve");
+  disputeBtn.classList.toggle("attn", decision === "Dispute");
+
+  // Optional icons to reinforce action (keep or remove)
+  approveBtn.textContent = "✔ Approve";
+  disputeBtn.textContent = "✖ Dispute";
+
+  // Open sheet + backdrop
   sheet.classList.add("open");
+  if (backdrop) backdrop.classList.add("show");
+
+  // Accessibility & keyboard escape
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-labelledby", "decisionTitle");
+  sheet.setAttribute("aria-describedby", "decisionMessage");
+  sheet.focus();
+
+  document.addEventListener("keydown", onSheetEsc);
 }
 
 function closeDecisionSheet(){
-  document.getElementById("decisionSheet").classList.remove("open");
+  const sheet = document.getElementById("decisionSheet");
+  const backdrop = document.getElementById("sheetBackdrop");
+  const approveBtn = document.getElementById("confirmApproveBtn");
+  const disputeBtn = document.getElementById("confirmDisputeBtn");
+
+  sheet.classList.remove("open");
+  if (backdrop) backdrop.classList.remove("show");
+
+  // Remove attention pulse
+  approveBtn.classList.remove("attn");
+  disputeBtn.classList.remove("attn");
+
+  // Reset state
   pendingDecision = null;
   pendingRecordId = null;
   pendingRecordName = null;
+
+  document.removeEventListener("keydown", onSheetEsc);
 }
+
+// Close on ESC
+function onSheetEsc(e){
+  if (e.key === "Escape") closeDecisionSheet();
+}
+
 
 /* =========================
    PATCH TO AIRTABLE
@@ -540,6 +578,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   if (searchBar) {
     searchBar.addEventListener("input", () => renderReviews());
+  }
+  const backdrop = document.getElementById("sheetBackdrop");
+  if (backdrop) {
+    backdrop.addEventListener("click", closeDecisionSheet);
   }
 });
 

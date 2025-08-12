@@ -33,11 +33,14 @@
   select, input[type="text"]{
     padding:12px 12px;border-radius:12px;border:1px solid var(--border);background:#0c0f14;color:var(--text);font-size:14px
   }
-  select{
-width: 55%;
- display: block;
-  margin: 0 auto; /* centers horizontally */
-  }
+select {
+  width: 55%;
+  display: block;
+  margin: 4px auto;      /* smaller vertical margin */
+  padding: 4px 6px;      /* reduce internal padding */
+  line-height: 1.2;      /* tighter height */
+}
+
 input[type="text"] {
   width: 20%;
   display: block;
@@ -87,10 +90,10 @@ input[type="text"] {
     width: 100%; /* full width for tap targets */
   }
  .decision-buttons button{
-  width: 60%
+  width: 70%
  }
   select{
-width: 75%;
+width: 90%;
  display: block;
   margin: 0 auto; /* centers horizontally */
   }
@@ -269,3 +272,59 @@ img, video {
 .reason-photo-row .photos a {
   white-space: nowrap; /* prevents line break in "image(s)" */
 }
+/* Backdrop behind confirm sheet */
+#sheetBackdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.5);
+  backdrop-filter: blur(2px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .25s ease;
+  z-index: 59; /* just below .sheet (z-index:60) */
+}
+#sheetBackdrop.show{
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Make the sheet pop when opening */
+.sheet{
+  will-change: transform;
+}
+.sheet.open{
+  animation: sheetPop .22s ease;
+}
+@keyframes sheetPop{
+  0%   { transform: translateY(8px); opacity: .96; }
+  100% { transform: translateY(0);   opacity: 1;   }
+}
+
+/* Stronger visual emphasis for confirm buttons */
+.sheet .actions button.approve,
+.sheet .actions button.dispute{
+  position: relative;
+  box-shadow: 0 8px 24px rgba(0,0,0,.35);
+}
+
+/* Pulsing ring to draw attention to the active choice */
+.sheet .actions button.approve.attn{
+  animation: pulseApprove 1.2s ease-in-out infinite;
+}
+.sheet .actions button.dispute.attn{
+  animation: pulseDispute 1.2s ease-in-out infinite;
+}
+@keyframes pulseApprove{
+  0%   { box-shadow: 0 0 0 0 rgba(52,199,89,.45); }
+  70%  { box-shadow: 0 0 0 14px rgba(52,199,89,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,199,89,0); }
+}
+@keyframes pulseDispute{
+  0%   { box-shadow: 0 0 0 0 rgba(255,59,48,.45); }
+  70%  { box-shadow: 0 0 0 14px rgba(255,59,48,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,59,48,0); }
+}
+
+/* Slightly bolder header/message */
+.sheet h3{ font-size: 18px; letter-spacing: .2px; }
+.sheet p { font-size: 15px; }
