@@ -47,7 +47,6 @@ function populateDatalistFromArray(records, fieldName, datalistId, branchFilter 
   return rec.fields[branchFieldName].includes(branchFilter);
 })
 
-
     .map(rec => rec.fields[fieldName]);
 
   // Deduplicate + sort alphabetically
@@ -86,8 +85,6 @@ function populateSelectFromArray(records, fieldName, selectId, branchFilter = nu
     select.appendChild(option);
   });
 }
-
-
 
 // Init dropdowns
 async function initDropdowns() {
@@ -188,7 +185,6 @@ document.getElementById("backchargeForm").addEventListener("submit", async (e) =
     alert("Error submitting backcharge.");
   }
 });
-
 
 // Helper: find recordId by name
 async function findRecordId(tableId, fieldName, value) {

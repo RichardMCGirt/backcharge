@@ -1,3 +1,6 @@
+/* =========================
+   CONFIG / CONSTANTS
+========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
 const TABLE_ID = "tblg98QfBxRd6uivq";
@@ -8,17 +11,39 @@ const CUSTOMER_TABLE = "tblQ7yvLoLKZlZ9yU";
 const TECH_TABLE = "tblj6Fp0rvN7QyjRv";
 const BRANCH_TABLE = "tblD2gLfkTtJYIhmK";
 
-// Cache to avoid repeated API calls
+// Cache & State
 const recordCache = {};
-let allRecords = []; // store globally
-let currentSort = ""; // track selected sort option
-let currentFilter = { type: null, value: null }; // track filter selection
+let allRecords = []; 
 let activeTechFilter = null;
 let activeBranchFilter = null;
-let pendingDecision = null;
-let pendingRecordId = null;
 let hasRestoredFilters = false;
 
+let pendingDecision = null;
+let pendingRecordId = null;
+let pendingRecordName = null;
+let lastActiveCardId = null;
+
+/* =========================
+   UTIL / UI HELPERS
+========================= */
+function showToast(message) {
+  const toast = document.getElementById("toast");
+  toast.textContent = message;
+  toast.className = "show";
+  setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 2000);
+}
+
+function showLoading() {
+  document.getElementById("loadingOverlay").style.display = "flex";
+}
+function hideLoading() {
+  document.getElementById("loadingOverlay").style.display = "none";
+}
+function vibrate(ms=20){ if (navigator.vibrate) try{ navigator.vibrate(ms);}catch(e){} }
+
+/* =========================
+   LINKED RECORD PRELOAD
+========================= */
 async function fetchAllRecords(tableId, keyFields) {
   let records = [];
   let offset = null;
@@ -59,7 +84,9 @@ function getCachedRecord(tableId, recordId) {
   return recordCache[`${tableId}_${recordId}`] || recordId;
 }
 
-// Fetch all backcharges from Airtable
+/* =========================
+   FETCH BACKCHARGES
+========================= */
 async function fetchBackcharges() {
   allRecords = [];
   let offset = null;
@@ -76,34 +103,34 @@ async function fetchBackcharges() {
     offset = data.offset;
   } while (offset);
 
+  populateFilterDropdowns();
   renderReviews();
 }
 
-
-// Render cards with optional sorting
+/* =========================
+   RENDER CARDS
+========================= */
 function renderReviews() {
+  const container = document.getElementById("reviewContainer");
+  const searchTerm = (document.getElementById("searchBar")?.value || "").toLowerCase();
+
   let records = [...allRecords];
 
-  // Apply tech filter if set
+  // Apply filters
   if (activeTechFilter) {
     records = records.filter(rec => {
-      const techs = (rec.fields["Field Technician"] || [])
-        .map(id => getCachedRecord(TECH_TABLE, id));
+      const techs = (rec.fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id));
       return techs.includes(activeTechFilter);
     });
   }
-
-  // Apply branch filter if set
   if (activeBranchFilter) {
     records = records.filter(rec => {
-      const branches = (rec.fields["Vanir Branch"] || [])
-        .map(id => getCachedRecord(BRANCH_TABLE, id));
+      const branches = (rec.fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id));
       return branches.includes(activeBranchFilter);
     });
   }
 
-  // 🔍 search logic stays same
-  const searchTerm = document.getElementById("searchBar")?.value.toLowerCase() || "";
+  // Search
   if (searchTerm) {
     records = records.filter(rec => {
       const jobName = (rec.fields["Job Name"] || "").toLowerCase();
@@ -124,23 +151,10 @@ function renderReviews() {
     });
   }
 
-  const container = document.getElementById("reviewContainer");
   container.innerHTML = "";
 
-  for (const record of records) {
+  records.forEach(record => {
     const fields = record.fields;
-
-    let subcontractor = (fields["Subcontractor to Backcharge"] || [])
-      .map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ");
-
-    let customer = (fields["Customer"] || [])
-      .map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ");
-
-    let technician = (fields["Field Technician"] || [])
-      .map(id => getCachedRecord(TECH_TABLE, id)).join(", ");
-
-    let branch = (fields["Vanir Branch"] || [])
-      .map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ");
 
     const jobName = fields["Job Name"] || "";
     const reason = fields["Reason for Backcharge"] || "";
@@ -149,44 +163,142 @@ function renderReviews() {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
-    // 📷 Field Photos
+    const branch = (fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ");
+    const technician = (fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id)).join(", ");
+    const customer = (fields["Customer"] || []).map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ");
+    const subcontractor = (fields["Subcontractor to Backcharge"] || []).map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ");
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
 
-    const div = document.createElement("div");
-    div.classList.add("review-card");
-    div.innerHTML = `
-  <p><strong>Job Name:</strong> <span class="job-name">${jobName}</span></p>
-  <p><strong>Branch:</strong> ${branch}</p>
-  <p><strong>Technician:</strong> ${technician}</p>
-  <p><strong>Customer:</strong> ${customer}</p>
-  <p><strong>Subcontractor to backcharge:</strong> ${subcontractor}</p>
-  <p><strong>Reason:</strong> ${reason}</p>
-  <p><strong>Amount:</strong> ${amount}</p>
-${photoCount > 0 ? `
-  <p><strong>Photos:</strong> 
-    <a href="#" class="photo-link" data-id="${record.id}">${photoCount} image(s)</a>
-  </p>
-` : ""}
+    const card = document.createElement("div");
+    card.className = "review-card";
+    card.setAttribute("data-id", record.id);
+    card.setAttribute("tabindex", "0");
+    card.innerHTML = `
+      <div class="swipe-hint swipe-approve"></div>
+      <div class="swipe-hint swipe-dispute"></div>
 
-<div class="decision-buttons">
-  <button onclick="openDecisionModal('${record.id}', 'Approve')">Approve</button>
-  <button onclick="openDecisionModal('${record.id}', 'Dispute')">Dispute</button>
-</div>
-`;
+      <p style="text-align:center;margin:0 0 8px 0;"><span class="job-name">${jobName}</span></p>
 
-    container.appendChild(div);
+      <div class="chips">
+        ${branch ? `<span class="chip">${branch}</span>` : ""}
+        ${technician ? `<span class="chip">Techniciab: ${technician}</span>` : ""}
+        ${customer ? `<span class="chip">Customer: ${customer}</span>` : ""}
+        ${subcontractor ? `<span class="chip">Subcontractor: ${subcontractor}</span>` : ""}
+        ${amount ? `<span class="chip">Amount: ${amount}</span>` : ""}
+      </div>
 
-    // Attach photo modal event
+      ${reason ? `<div class="kv"><b>Reason</b><div>${reason}</div></div>` : ""}
+
+      ${photoCount > 0 ? `
+        <div class="photos"><a href="#" class="photo-link" data-id="${record.id}">📷 ${photoCount} image(s)</a></div>
+      ` : ""}
+
+      <div class="decision-buttons">
+        <button class="dispute" data-action="Dispute">Dispute</button>
+        <button class="approve" data-action="Approve">Approve</button>
+      </div>
+    `;
+
+    // Photo modal
     if (photoCount > 0) {
-      div.querySelector(".photo-link").addEventListener("click", e => {
+      const a = card.querySelector(".photo-link");
+      a.addEventListener("click", (e) => {
         e.preventDefault();
         openPhotoModal(photos);
       });
     }
-  }
+
+    // Quick actions context
+    card.addEventListener("click", () => {
+      lastActiveCardId = record.id;
+      pendingRecordName = jobName || "Unknown Job";
+    });
+    card.addEventListener("focus", () => {
+      lastActiveCardId = record.id;
+      pendingRecordName = jobName || "Unknown Job";
+    });
+
+    // Buttons → open sheet
+    card.querySelectorAll(".decision-buttons button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const action = btn.getAttribute("data-action");
+        openDecisionSheet(record.id, jobName, action);
+      });
+    });
+
+    // Swipe gestures
+    attachSwipeHandlers(card, (dir) => {
+      if (dir === "right") {
+        vibrate(15);
+        openDecisionSheet(record.id, jobName, "Approve");
+      } else if (dir === "left") {
+        vibrate(15);
+        openDecisionSheet(record.id, jobName, "Dispute");
+      }
+    });
+
+    container.appendChild(card);
+  });
 }
 
+/* =========================
+   SWIPE HANDLERS
+========================= */
+function attachSwipeHandlers(el, onCommit){
+  let startX = 0, startY = 0, deltaX = 0, active = false;
+
+  el.addEventListener("touchstart", (e)=>{
+    if (!e.touches || e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    deltaX = 0;
+    active = true;
+    el.style.transition = "none";
+  }, {passive:true});
+
+  el.addEventListener("touchmove", (e)=>{
+    if (!active || !e.touches || e.touches.length !== 1) return;
+    const x = e.touches[0].clientX;
+    const y = e.touches[0].clientY;
+    const dx = x - startX;
+    const dy = y - startY;
+
+    // prevent vertical drags from triggering swipe
+    if (Math.abs(dy) > Math.abs(dx)) return;
+
+    deltaX = dx;
+    el.style.transform = `translateX(${dx}px) rotate(${dx*0.02}deg)`;
+    el.classList.toggle("swiping-right", dx > 12);
+    el.classList.toggle("swiping-left", dx < -12);
+  }, {passive:true});
+
+  el.addEventListener("touchend", ()=>{
+    if (!active) return;
+    el.style.transition = "transform .15s ease";
+    el.classList.remove("swiping-right", "swiping-left");
+
+    const threshold = 80; // px
+    if (deltaX > threshold) {
+      el.style.transform = "translateX(120vw)";
+      setTimeout(()=>{ el.style.transform = ""; }, 250);
+      onCommit && onCommit("right");
+    } else if (deltaX < -threshold) {
+      el.style.transform = "translateX(-120vw)";
+      setTimeout(()=>{ el.style.transform = ""; }, 250);
+      onCommit && onCommit("left");
+    } else {
+      el.style.transform = ""; // snap back
+    }
+
+    active = false;
+    deltaX = 0;
+  });
+}
+
+/* =========================
+   PHOTO MODAL
+========================= */
 function openPhotoModal(photos) {
   const modal = document.getElementById("photoModal");
   const gallery = document.getElementById("photoGallery");
@@ -201,17 +313,80 @@ function openPhotoModal(photos) {
     gallery.appendChild(img);
   });
 
-  modal.style.display = "block";
-
-  // Close handlers
+  modal.style.display = "flex";
   closeBtn.onclick = () => modal.style.display = "none";
-  window.onclick = (event) => {
+  modal.onclick = (event) => {
     if (event.target === modal) modal.style.display = "none";
   };
 }
 
+/* =========================
+   BOTTOM SHEET CONFIRM
+========================= */
+function openDecisionSheet(recordId, jobName, decision) {
+  pendingRecordId = recordId;
+  pendingRecordName = jobName;
+  pendingDecision = decision;
+
+  const sheet = document.getElementById("decisionSheet");
+  const title = document.getElementById("decisionTitle");
+  const msg = document.getElementById("decisionMessage");
+  const approveBtn = document.getElementById("confirmApproveBtn");
+  const disputeBtn = document.getElementById("confirmDisputeBtn");
+
+  title.textContent = `Confirm ${decision}`;
+  msg.innerHTML = `Are you sure you want to mark <strong>${jobName || "Unknown Job"}</strong> as "<strong>${decision}</strong>"?`;
+
+  approveBtn.style.display = decision === "Approve" ? "block" : "none";
+  disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
+
+  sheet.classList.add("open");
+}
+
+function closeDecisionSheet(){
+  document.getElementById("decisionSheet").classList.remove("open");
+  pendingDecision = null;
+  pendingRecordId = null;
+  pendingRecordName = null;
+}
+
+/* =========================
+   PATCH TO AIRTABLE
+========================= */
+async function confirmDecision(decision) {
+  if (!pendingRecordId || !decision) return;
+
+  showLoading();
+  try{
+    const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ fields: { "Approve or Dispute": decision } })
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      console.error("❌ Airtable error:", error);
+      alert(`Failed to update record: ${error.error?.message || JSON.stringify(error)}`);
+      return;
+    }
+
+    vibrate(30);
+    showToast(`${pendingRecordName || "Record"} marked as ${decision}`);
+    await fetchBackcharges(); // refresh the list
+  } finally{
+    hideLoading();
+    closeDecisionSheet();
+  }
+}
+
+/* =========================
+   FILTER DROPDOWNS
+========================= */
 function populateFilterDropdowns() {
-  const techSet = new Set();
   const branchSet = new Set();
 
   for (const rec of allRecords) {
@@ -226,10 +401,9 @@ function populateFilterDropdowns() {
     branchFilter.innerHTML += `<option value="${name}">${name}</option>`;
   });
 
-  // ✅ Now call with skipClear = true so restoreFilters() runs after this
+  // Build tech based on (optionally) selected branch
   updateTechDropdown(true);
 }
-
 
 function updateTechDropdown(skipClear = false) {
   const branchFilter = document.getElementById("branchFilter");
@@ -238,11 +412,8 @@ function updateTechDropdown(skipClear = false) {
   const techSet = new Set();
 
   for (const rec of allRecords) {
-    const recordBranches = (rec.fields["Vanir Branch"] || [])
-      .map(id => getCachedRecord(BRANCH_TABLE, id));
-    const recordTechs = (rec.fields["Field Technician"] || [])
-      .map(id => getCachedRecord(TECH_TABLE, id));
-
+    const recordBranches = (rec.fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id));
+    const recordTechs = (rec.fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id));
     if (!selectedBranch || recordBranches.includes(selectedBranch)) {
       recordTechs.forEach(t => techSet.add(t));
     }
@@ -255,8 +426,6 @@ function updateTechDropdown(skipClear = false) {
   });
 
   if (activeTechFilter) {
-    techFilter.value = activeTechFilter;
-
     const optionExists = Array.from(techFilter.options).some(opt => opt.value === activeTechFilter);
     if (!optionExists) {
       const opt = document.createElement("option");
@@ -264,11 +433,7 @@ function updateTechDropdown(skipClear = false) {
       opt.textContent = activeTechFilter;
       techFilter.appendChild(opt);
     }
-
-    if (!localStorage.getItem("techFilter")) {
-      localStorage.setItem("techFilter", activeTechFilter);
-      console.log("💾 Saved tech filter to localStorage:", activeTechFilter);
-    }
+    techFilter.value = activeTechFilter;
   }
 
   if (!skipClear && !techSet.has(activeTechFilter)) {
@@ -276,211 +441,102 @@ function updateTechDropdown(skipClear = false) {
     localStorage.removeItem("techFilter");
   }
 
-  // ✅ Prevent infinite loop
+  // Only restore once
   if (skipClear && !hasRestoredFilters) {
     hasRestoredFilters = true;
-    console.log("✅ Calling restoreFilters() from updateTechDropdown()");
     restoreFilters();
   }
 }
-
-function openDecisionModal(recordId, decision) {
-  pendingRecordId = recordId;
-  pendingDecision = decision;
-
-  const modal = document.getElementById("decisionModal");
-  const title = document.getElementById("decisionTitle");
-  const message = document.getElementById("decisionMessage");
-  const confirmBtn = document.getElementById("confirmDecisionBtn");
-
-  // Find job name for display
-  const record = allRecords.find(r => r.id === recordId);
-  const jobName = record?.fields["Job Name"] || "Unknown Job";
-
-  title.textContent = `Confirm ${decision}`;
-  message.innerHTML = `
-    Are you sure you want to mark 
-    <strong>${jobName}</strong> 
-    as "<strong>${decision}</strong>"?
-  `;
-
-  // ✅ Update button text + color
-  if (decision === "Approve") {
-    confirmBtn.textContent = "Yes, Approve";
-    confirmBtn.style.backgroundColor = "#007b5e"; // green
-    confirmBtn.style.color = "#fff";
-  } else if (decision === "Dispute") {
-    confirmBtn.textContent = "Dispute";
-    confirmBtn.style.backgroundColor = "#cc2f2f"; // red
-    confirmBtn.style.color = "#fff";
-  }
-
-  modal.style.display = "block";
-}
-function showToast(message) {
-  const toast = document.getElementById("toast");
-  toast.textContent = message;
-  toast.className = "show";
-  setTimeout(() => {
-    toast.className = toast.className.replace("show", "");
-  }, 2000); // hide after 2s
-}
-function showLoading() {
-  document.getElementById("loadingOverlay").style.display = "flex";
-}
-
-function hideLoading() {
-  document.getElementById("loadingOverlay").style.display = "none";
-}
-
-
-// Handle modal confirm/cancel
-document.addEventListener("DOMContentLoaded", () => {
-  const modal = document.getElementById("decisionModal");
-  const closeBtn = modal.querySelector(".close");
-  const confirmBtn = document.getElementById("confirmDecisionBtn");
-
-  closeBtn.onclick = () => modal.style.display = "none";
-
- confirmBtn.onclick = async () => {
-  if (!pendingRecordId || !pendingDecision) return;
-
-  const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      fields: { "Approve or Dispute": pendingDecision }
-    })
-  });
-
-  if (res.ok) {
-    const record = allRecords.find(r => r.id === pendingRecordId);
-    const jobName = record?.fields["Job Name"] || "Unknown Job";
-
-    showToast(`${jobName} marked as ${pendingDecision}`);
-    fetchBackcharges();
-  } else {
-    const error = await res.json();
-    console.error("❌ Airtable error:", error);
-    alert(`Failed to update record: ${error.error?.message || JSON.stringify(error)}`);
-  }
-
-  modal.style.display = "none";
-  pendingDecision = null;
-  pendingRecordId = null;
-};
-
-  window.onclick = (event) => {
-    if (event.target === modal) modal.style.display = "none";
-  };
-});
-
-// Init
-(async () => {
-  showLoading();
-  await preloadLinkedTables();
-  await fetchBackcharges();
-  populateFilterDropdowns(); 
-  hideLoading();
-})();
-
-
 
 function restoreFilters() {
   const savedTech = localStorage.getItem("techFilter");
   const savedBranch = localStorage.getItem("branchFilter");
 
-  console.log("🔁 Restoring saved filters...");
-  console.log("📦 Saved tech filter:", savedTech);
-  console.log("📦 Saved branch filter:", savedBranch);
-
-  // Restore branch first
+  // Branch first
   if (savedBranch) {
     const branchFilter = document.getElementById("branchFilter");
     if (branchFilter) {
       branchFilter.value = savedBranch;
       activeBranchFilter = savedBranch;
-      console.log("✅ Branch filter restored to:", savedBranch);
-    } else {
-      console.warn("⚠️ Could not find branchFilter element.");
     }
-  } else {
-    console.log("ℹ️ No saved branch filter found.");
   }
 
-  // Restore tech before updating dropdown
+  // Then tech
   if (savedTech) {
     const techFilter = document.getElementById("techFilter");
     if (techFilter) {
       techFilter.value = savedTech;
       activeTechFilter = savedTech;
-      console.log("✅ Tech filter restored to:", savedTech);
-    } else {
-      console.warn("⚠️ Could not find techFilter element.");
     }
-  } else {
-    console.log("ℹ️ No saved tech filter found.");
   }
 
-  console.log("🔄 Updating tech dropdown with restored filters...");
-  updateTechDropdown(true); // 🔄 rebuild dropdown with filter already set
-
-  console.log("📋 Rendering reviews with current filters...");
+  updateTechDropdown(true); // rebuild tech dropdown respecting branch
   renderReviews();
+
+  // Hide branch chooser if a branch is set
+  const branchFilterContainer = document.getElementById("branchFilterContainer");
+  if (branchFilterContainer) {
+    branchFilterContainer.style.display = savedBranch ? "none" : "block";
+  }
 }
 
-
-
-// Hamburger toggle
+/* =========================
+   EVENT WIRING
+========================= */
 document.addEventListener("DOMContentLoaded", () => {
-  const toggleBtn = document.getElementById("hamburgerToggle");
-  const menu = document.getElementById("hamburgerMenu");
+  // Bottom sheet buttons
+  document.getElementById("cancelDecisionBtn").onclick = closeDecisionSheet;
+  document.getElementById("confirmApproveBtn").onclick = ()=> confirmDecision("Approve");
+  document.getElementById("confirmDisputeBtn").onclick = ()=> confirmDecision("Dispute");
 
-  if (toggleBtn && menu) {
-    toggleBtn.addEventListener("click", () => {
-      menu.classList.toggle("open");
+  // Filters
+  const techFilter = document.getElementById("techFilter");
+  const branchFilter = document.getElementById("branchFilter");
+  const searchBar = document.getElementById("searchBar");
+
+  if (techFilter) {
+    techFilter.addEventListener("change", e => {
+      if (e.target.value) {
+        activeTechFilter = e.target.value;
+        localStorage.setItem("techFilter", e.target.value);
+      } else {
+        activeTechFilter = null;
+        localStorage.removeItem("techFilter");
+      }
+      renderReviews();
     });
   }
 
-  const techFilter = document.getElementById("techFilter");
-  const branchFilter = document.getElementById("branchFilter");
+  if (branchFilter) {
+    branchFilter.addEventListener("change", e => {
+      if (e.target.value) {
+        activeBranchFilter = e.target.value;
+        localStorage.setItem("branchFilter", e.target.value);
+        document.getElementById("branchFilterContainer").style.display = "none";
+      } else {
+        activeBranchFilter = null;
+        localStorage.removeItem("branchFilter");
+        document.getElementById("branchFilterContainer").style.display = "block";
+      }
+      updateTechDropdown(); 
+      renderReviews();
+    });
+  }
 
-if (techFilter) {
-  techFilter.addEventListener("change", e => {
-    if (e.target.value) {
-      activeTechFilter = e.target.value;
-      localStorage.setItem("techFilter", e.target.value);
-    } else {
-      activeTechFilter = null;
-      localStorage.removeItem("techFilter");
-    }
-    renderReviews();
-  });
-}
-
-
-if (branchFilter) {
-  branchFilter.addEventListener("change", e => {
-    if (e.target.value) {
-      activeBranchFilter = e.target.value;
-      localStorage.setItem("branchFilter", e.target.value);
-    } else {
-      activeBranchFilter = null;
-      localStorage.removeItem("branchFilter");
-    }
-    updateTechDropdown(); // 🔥 refresh tech list
-    renderReviews();
-  });
-}
-
-if (searchBar) {
-  searchBar.addEventListener("input", e => {
-    renderReviews();
-  });
-}
-
+  if (searchBar) {
+    searchBar.addEventListener("input", () => renderReviews());
+  }
 });
 
+/* =========================
+   INIT
+========================= */
+(async () => {
+  showLoading();
+  try{
+    await preloadLinkedTables();
+    await fetchBackcharges();
+  } finally{
+    hideLoading();
+  }
+})();

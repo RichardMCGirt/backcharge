@@ -1,53 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Submit Backcharge</title>
-  <link rel="stylesheet" href="form.css">
+<meta charset="UTF-8" />
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+/>
+<title>Backcharge Review (Mobile)</title>
+  <link rel="stylesheet" href="review.css">
+
 </head>
 <body>
-    <nav class="navbar">
-  <ul class="nav-links" id="navLinks">
-    <li><a href="review.html">Review Backcharges</a></li>
-  </ul>
-</nav>
 
-  <h2>Submit a Backcharge</h2>
-  <form id="backchargeForm">
+<!-- Top App Bar / Filters -->
+<div class="appbar">
+  <div class="row">
+    <div class="title">Backcharge Review</div>
+  </div>
 
-    <label>Job Name:</label>
-<input type="text" id="jobName" required>
+  <div class="filters" id="filtersGrid">
+    <div id="branchFilterContainer">
+      <select id="branchFilter" aria-label="Filter by branch">
+        <option value="">-- All Branches --</option>
+      </select>
+    </div>
+    <div>
+      <select id="techFilter" aria-label="Filter by technician">
+        <option value="">-- All Technicians --</option>
+      </select>
+    </div>
+  </div>
 
+  <div class="searchwrap">
+    <input id="searchBar" type="text" placeholder="Search job, subcontractor, customer, tech, branch…" />
+  </div>
+</div>
 
-<label>Branch:</label>
-<select id="branch" required>
-  <option value="">-- Select Branch --</option>
-</select>
+<!-- Cards container -->
+<div id="reviewContainer"></div>
 
-  <label>Subcontractor to backcharge:</label>
-<select id="subcontractor" required>
-  <option value="">-- Select Subcontractor --</option>
-</select>
+<!-- Sticky Quick Actions (contextual to last tapped/active card) -->
+<div class="quickbar" id="quickbar" role="region" aria-live="polite">
+  <div class="label" id="quickbarLabel">Select a job…</div>
+  <button class="dispute" id="qbDispute" aria-label="Dispute">Dispute</button>
+  <button class="approve" id="qbApprove" aria-label="Approve">Approve</button>
+</div>
 
-<label>Customer:</label>
-<select id="customer" required>
-  <option value="">-- Select Customer --</option>
-</select>
+<!-- Bottom Sheet Confirmation -->
+<div class="sheet" id="decisionSheet" aria-modal="true" role="dialog">
+  <div class="sheet-handle"></div>
+  <h3 id="decisionTitle">Confirm</h3>
+  <p id="decisionMessage">Are you sure?</p>
+  <div class="actions">
+    <button class="cancel" id="cancelDecisionBtn">Cancel</button>
+    <button class="dispute" id="confirmDisputeBtn">Dispute</button>
+    <button class="approve" id="confirmApproveBtn">Approve</button>
+  </div>
+</div>
 
-<label>Field Technician:</label>
-<select id="technician" required>
-  <option value="">-- Select Technician --</option>
-</select>
+<!-- Photo Modal -->
+<div id="photoModal">
+  <button class="close" aria-label="Close">&times;</button>
+  <div id="photoGallery"></div>
+</div>
 
-    <label>Reason for Backcharge:</label>
-    <textarea id="reason" required></textarea>
+<!-- Toast -->
+<div id="toast"></div>
 
-    <label>Backcharge Amount:</label>
-    <input type="number" step="0.01" id="amount" required>
+<!-- Loading overlay -->
+<div id="loadingOverlay"><div class="spinner" aria-hidden="true"></div></div>
 
-    <button type="submit">Submit</button>
-  </form>
-
-  <script src="form.js"></script>
+  <script src="review.js"></script>
 </body>
 </html>

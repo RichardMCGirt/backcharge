@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Submit Backcharge</title>
+  <link rel="stylesheet" href="form/form.css">
+</head>
+<body>
+    <nav class="navbar">
+  <ul class="nav-links" id="navLinks">
+    <li><a href="index.html">Review Backcharges</a></li>
+  </ul>
+</nav>
+
+  <h2>Submit a Backcharge</h2>
+  <form id="backchargeForm">
+
+    <label>Job Name:</label>
+<input type="text" id="jobName" required>
+
+
+<label>Branch:</label>
+<select id="branch" required>
+  <option value="">-- Select Branch --</option>
+</select>
+<label>Field Technician:</label>
+<select id="technician" required>
+  <option value="">-- Select Technician --</option>
+</select>
+  <label>Subcontractor to backcharge:</label>
+<select id="subcontractor" required>
+  <option value="">-- Select Subcontractor --</option>
+</select>
+
+<label>Customer:</label>
+<select id="customer" required>
+  <option value="">-- Select Customer --</option>
+</select>
+
+
+
+    <label>Reason for Backcharge:</label>
+    <textarea id="reason" required></textarea>
+
+    <label>Backcharge Amount:</label>
+    <input type="number" step="0.01" id="amount" required>
+
+    <button type="submit">Submit</button>
+  </form>
+
+  <script src="form/form.js"></script>
+</body>
+</html>
