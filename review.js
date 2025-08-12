@@ -196,11 +196,20 @@ const techChip = (technician && technician !== activeTechFilter)
 </div>
 
 
-      ${reason ? `<div class="kv"><b>Reason</b><div>${reason}</div></div>` : ""}
-
-      ${photoCount > 0 ? `
-        <div class="photos"><a href="#" class="photo-link" data-id="${record.id}">📷 ${photoCount} image(s)</a></div>
-      ` : ""}
+${
+  reason || photoCount > 0
+    ? `
+    <div class="reason-photo-row">
+      ${reason ? `<div class="kv"><b>Reason:</b> ${reason}</div>` : ""}
+      ${
+        photoCount > 0
+          ? `<div class="photos"><a href="#" class="photo-link" data-id="${record.id}">📷 ${photoCount} image(s)</a></div>`
+          : ""
+      }
+    </div>
+  `
+    : ""
+}
 
       <div class="decision-buttons">
         <button class="dispute" data-action="Dispute">Dispute</button>

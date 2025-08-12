@@ -60,7 +60,7 @@ input[type="text"] {
     position:relative;overflow:hidden
   }
   .job-name{font-size:16px;font-weight:700}
-  .kv{margin:8px 0;display:grid;grid-template-columns:auto 1fr;gap:6px 10px}
+  .kv{margin:8px 0;display:grid;gap:6px 10px}
   .kv b{color:var(--muted);font-weight:600}
 .chips {
   display: flex;
@@ -252,4 +252,20 @@ img, video {
 .chip, .label {
   white-space: normal;
   word-break: break-word;
+}
+
+.reason-photo-row {
+  display: flex;
+  justify-content: space-between; /* space between reason and photo count */
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap; /* keeps it mobile friendly */
+}
+
+.reason-photo-row .kv {
+  text-align: left;
+}
+
+.reason-photo-row .photos a {
+  white-space: nowrap; /* prevents line break in "image(s)" */
 }
