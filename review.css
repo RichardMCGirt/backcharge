@@ -29,9 +29,21 @@
     display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px
   }
   .searchwrap{margin-top:8px}
+
   select, input[type="text"]{
-    width:100%;padding:12px 12px;border-radius:12px;border:1px solid var(--border);background:#0c0f14;color:var(--text);font-size:14px
+    padding:12px 12px;border-radius:12px;border:1px solid var(--border);background:#0c0f14;color:var(--text);font-size:14px
   }
+  select{
+width: 85%;
+ display: block;
+  margin: 0 auto; /* centers horizontally */
+  }
+input[type="text"] {
+  width: 60%;
+  display: block;
+  margin: 0 auto; /* centers horizontally */
+}
+
 
   /* Cards */
   #reviewContainer{display:grid;gap:12px;padding:12px 12px 96px} /* padding bottom for bottom bar */
