@@ -169,6 +169,13 @@ function renderReviews() {
     const subcontractor = (fields["Subcontractor to Backcharge"] || []).map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ");
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
+const branchChip = (branch && branch !== activeBranchFilter) 
+  ? `<span class="chip">${branch}</span>` 
+  : "";
+
+const techChip = (technician && technician !== activeTechFilter) 
+  ? `<span class="chip">Technician: ${technician}</span>` 
+  : "";
 
     const card = document.createElement("div");
     card.className = "review-card";
@@ -181,12 +188,13 @@ function renderReviews() {
       <p style="text-align:center;margin:0 0 8px 0;"><span class="job-name">${jobName}</span></p>
 
       <div class="chips">
-        ${branch ? `<span class="chip">${branch}</span>` : ""}
-        ${technician ? `<span class="chip">Techniciab: ${technician}</span>` : ""}
-        ${customer ? `<span class="chip">Customer: ${customer}</span>` : ""}
-        ${subcontractor ? `<span class="chip">Subcontractor: ${subcontractor}</span>` : ""}
-        ${amount ? `<span class="chip">Amount: ${amount}</span>` : ""}
-      </div>
+  ${branchChip}
+  ${techChip}
+  ${customer ? `<span class="chip">Customer: ${customer}</span>` : ""}
+  ${subcontractor ? `<span class="chip">Sub: ${subcontractor}</span>` : ""}
+  ${amount ? `<span class="chip">Amount: ${amount}</span>` : ""}
+</div>
+
 
       ${reason ? `<div class="kv"><b>Reason</b><div>${reason}</div></div>` : ""}
 
