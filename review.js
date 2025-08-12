@@ -476,7 +476,6 @@ function restoreFilters() {
   // Hide branch chooser if a branch is set
   const branchFilterContainer = document.getElementById("branchFilterContainer");
   if (branchFilterContainer) {
-    branchFilterContainer.style.display = savedBranch ? "none" : "block";
   }
 }
 
@@ -512,7 +511,6 @@ document.addEventListener("DOMContentLoaded", () => {
       if (e.target.value) {
         activeBranchFilter = e.target.value;
         localStorage.setItem("branchFilter", e.target.value);
-        document.getElementById("branchFilterContainer").style.display = "none";
       } else {
         activeBranchFilter = null;
         localStorage.removeItem("branchFilter");
