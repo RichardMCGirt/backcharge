@@ -142,10 +142,50 @@ input[type="text"] {
   .sheet .cancel{background:#131823;color:#cfd6ea}
 
   /* Photo modal */
-  #photoModal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.9);z-index:70;align-items:center;justify-content:center}
-  #photoGallery{display:flex;gap:10px;max-width:100vw;overflow:auto;padding:10px}
-  .modal-photo{max-height:70vh;border-radius:12px}
-  #photoModal .close{position:absolute;top:12px;right:12px;font-size:26px;background:#0008;border:1px solid #555;color:#fff;padding:6px 10px;border-radius:10px}
+#photoModal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 70;
+  justify-content: center;
+  align-items: flex-start; /* start at top */
+  overflow: auto; /* allow vertical scroll */
+  padding: 20px;
+}
+
+#photoGallery {
+  display: flex;
+  flex-wrap: wrap; /* allow multiple rows if needed */
+  gap: 10px;
+  max-width: 100%;
+  justify-content: center;
+}
+
+.modal-photo {
+  max-width: 100%;
+  max-height: 100%;
+  height: auto;
+  width: auto;
+  object-fit: contain; /* keep aspect ratio */
+  border-radius: 12px;
+  display: block;
+}
+
+#photoModal .close {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  font-size: 26px;
+  background: #0008;
+  border: 1px solid #555;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 10px;
+  z-index: 80;
+  cursor: pointer;
+}
+
 
   /* Toast */
   #toast{visibility:hidden;min-width:160px;background:#1a2232;color:#fff;text-align:center;border-radius:999px;padding:10px 14px;position:fixed;z-index:80;left:50%;transform:translateX(-50%);bottom:80px}

@@ -3,7 +3,7 @@
 ========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
-const TABLE_ID = "tbl1LwBCXM0DYQSJH";
+const TABLE_ID = "tblg98QfBxRd6uivq";
 
 // Linked tables
 const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb";
@@ -174,7 +174,7 @@ const branchChip = (branch && branch !== activeBranchFilter)
   : "";
 
 const techChip = (technician && technician !== activeTechFilter) 
-  ? `<span class="chip">Technician: ${technician}</span>` 
+  ? `<span class="chip">${technician}</span>` 
   : "";
 
     const card = document.createElement("div");
@@ -184,15 +184,15 @@ const techChip = (technician && technician !== activeTechFilter)
     card.innerHTML = `
       <div class="swipe-hint swipe-approve"></div>
       <div class="swipe-hint swipe-dispute"></div>
-
+      <br>
       <p style="text-align:center;margin:0 0 8px 0;"><span class="job-name">${jobName}</span></p>
-
+      <br>
       <div class="chips">
   ${branchChip}
   ${techChip}
-  ${customer ? `<span class="chip">Customer: ${customer}</span>` : ""}
-  ${subcontractor ? `<span class="chip">Subcontractor: ${subcontractor}</span>` : ""}
-  ${amount ? `<span class="chip">Amount: ${amount}</span>` : ""}
+  ${customer ? `<span class="chip">Builder: ${customer}</span>` : ""}
+  ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${subcontractor}</span>` : ""}
+  ${amount ? `<span class="chip">Amount to backcharge: ${amount}</span>` : ""}
 </div>
 ${
   reason || photoCount > 0
@@ -403,7 +403,6 @@ function closeDecisionSheet(){
 function onSheetEsc(e){
   if (e.key === "Escape") closeDecisionSheet();
 }
-
 
 /* =========================
    PATCH TO AIRTABLE
