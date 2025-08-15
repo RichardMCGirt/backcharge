@@ -1,3 +1,11 @@
+/* =============================
+   form.js – Backcharge form (Dropbox photo upload → Airtable "Photos")
+   - ES5-safe (no optional chaining / nullish coalescing / arrows)
+   - Branch-name ↔ linked-ID filtering preserved
+   - Uploads selected files to Dropbox and patches Airtable "Photos" with direct links
+   ============================= */
+
+import { fetchDropboxToken, uploadFileToDropbox } from "../dropbox.js";
 
 
 // ---- Airtable config ----
@@ -18,7 +26,7 @@ var techRecords = [];
 // Excluded branches
 var excludedBranches = ["Test Branch", "Airtable Hail Mary Test", "AT HM Test"];
 
-/* ---------- Small DOM helpers (no ?. / ??) ---------- */
+/* ---------- Small DOM helpers ---------- */
 function q(sel){ return document.querySelector(sel); }
 function val(sel){ var el = q(sel); return el ? el.value : ""; }
 
@@ -117,38 +125,6 @@ function recordMatchesBranchName(rec, branchFieldName, selectedBranchName) {
 
 /* ---------- UI population ---------- */
 
-// Populate a datalist with sorted values
-function populateDatalistFromArray(records, fieldName, datalistId, branchFilterName, branchFieldName) {
-  if (typeof branchFieldName === "undefined") branchFieldName = "Division";
-  var datalist = document.getElementById(datalistId);
-  if (!datalist) return;
-  datalist.innerHTML = ""; // clear old
-
-  var options = records
-    .filter(function(rec){ return rec.fields && rec.fields[fieldName]; })
-    .filter(function(rec){ return recordMatchesBranchName(rec, branchFieldName, branchFilterName || null); })
-    .map(function(rec){ return rec.fields[fieldName]; });
-
-  // Deduplicate + sort alphabetically
-  var seen = {};
-  options = options.filter(function(v){
-    var k = String(v);
-    if (seen[k]) return false;
-    seen[k] = true;
-    return true;
-  }).sort(function(a, b){ return String(a).localeCompare(String(b)); });
-
-  options.forEach(function(val){
-    var option = document.createElement("option");
-    option.value = val;
-    datalist.appendChild(option);
-  });
-
-  if (options.length === 0 && branchFilterName) {
-    console.warn("[populateDatalistFromArray] No options after filtering by branch \"" + branchFilterName + "\" on field \"" + branchFieldName + "\". Check data/linking.");
-  }
-}
-
 // Populate a <select> dropdown
 function populateSelectFromArray(records, fieldName, selectId, branchFilterName, branchFieldName) {
   if (typeof branchFieldName === "undefined") branchFieldName = "Division";
@@ -236,7 +212,49 @@ if (branchEl) {
   });
 }
 
-// ---- Submit handler ----
+/* ---------- Dropbox helpers ---------- */
+
+// Turn FileList -> Array<File>
+function filesFromInput(inputId){
+  var input = document.getElementById(inputId);
+  if (!input || !input.files || !input.files.length) return [];
+  return Array.prototype.slice.call(input.files);
+}
+
+async function uploadPhotosAndGetAttachments() {
+  // Get file objects from <input type="file" id="photos" multiple>
+  var files = filesFromInput("photos");
+  if (!files.length) return []; // no photos selected
+
+  // Get Dropbox token & creds from Airtable (via dropb.js)
+  var creds = await fetchDropboxToken();
+  if (!creds || !creds.token) {
+    alert("Couldn't fetch Dropbox credentials. Please try again or contact admin.");
+    return [];
+  }
+
+  // Upload all files (in parallel) → direct URLs
+  var uploadPromises = files.map(function(file){
+    return uploadFileToDropbox(file, creds.token, creds); // returns direct link or null
+  });
+
+  var urls = await Promise.all(uploadPromises);
+  // Build Airtable attachment array (filter out failures)
+  var attachments = [];
+  for (var i = 0; i < urls.length; i++) {
+    if (urls[i]) {
+      attachments.push({
+        url: urls[i],
+        filename: files[i].name
+      });
+    } else {
+      console.warn("Upload failed for file:", files[i] && files[i].name);
+    }
+  }
+  return attachments;
+}
+
+/* ---------- Submit handler ---------- */
 var formEl = document.getElementById("backchargeForm");
 if (formEl) {
   formEl.addEventListener("submit", async function(e){
@@ -291,6 +309,16 @@ if (formEl) {
       return;
     }
 
+    // ⬇️ Upload photos to Dropbox and prepare Airtable attachments
+    var photoAttachments = [];
+    try {
+      photoAttachments = await uploadPhotosAndGetAttachments();
+    } catch (upErr) {
+      console.error("Photo upload error:", upErr);
+      alert("One or more photos failed to upload. You can submit without photos or try again.");
+      // continue; attachments can be empty
+    }
+
     var fields = {
       "Customer":         [custId],
       "Field Technician": [techId],
@@ -301,6 +329,9 @@ if (formEl) {
 
     if (amount !== null && !Number.isNaN(amount)) {
       fields["Backcharge Amount"] = amount;
+    }
+    if (photoAttachments.length) {
+      fields["Photos"] = photoAttachments; // <-- Attachment field expects [{ url, filename }]
     }
 
     var payload = { fields: fields };
@@ -327,6 +358,10 @@ if (formEl) {
 
       alert("Backcharge submitted!");
       formEl.reset();
+
+      // Optional: clear file input value explicitly
+      var fileEl = document.getElementById("photos");
+      if (fileEl) { try { fileEl.value = ""; } catch (e3) {} }
 
       // Rebuild dropdowns after reset (optional; keeps lists fresh)
       var branchNameAfter = val("#branch");
