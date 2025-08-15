@@ -99,6 +99,114 @@ function getCachedRecord(tableId, recordId) {
 }
 
 /* =========================
+   URL PARAM HELPERS (Deep-link filters)
+========================= */
+function getURLParams(){
+  const usp = new URLSearchParams(window.location.search);
+  return {
+    tech: usp.get("tech") || null,
+    branch: usp.get("branch") || null,
+    q: usp.get("q") || null
+  };
+}
+
+function setURLParams({ tech, branch, q }){
+  const usp = new URLSearchParams(window.location.search);
+  if (tech) usp.set("tech", tech); else usp.delete("tech");
+  if (branch) usp.set("branch", branch); else usp.delete("branch");
+  if (q) usp.set("q", q); else usp.delete("q");
+  const newUrl = `${location.pathname}${usp.toString() ? "?" + usp.toString() : ""}`;
+  history.replaceState(null, "", newUrl);
+}
+
+/* Applies filters from URL if present; falls back to localStorage */
+function applyFiltersFromURLOrStorage(){
+  const { tech, branch, q } = getURLParams();
+
+  const branchFilter = document.getElementById("branchFilter");
+  const techFilter = document.getElementById("techFilter");
+  const searchBar = document.getElementById("searchBar");
+
+  let appliedBranch = null;
+  let appliedTech = null;
+
+  // 1) Branch from URL (preferred)
+  if (branch && branchFilter) {
+    branchFilter.value = branch;
+    if (branchFilter.value === branch) {
+      activeBranchFilter = branch;
+      localStorage.setItem("branchFilter", branch);
+    }
+  }
+  // If no URL branch, fallback to storage
+  if (!activeBranchFilter) {
+    const savedBranch = localStorage.getItem("branchFilter");
+    if (savedBranch && branchFilter) {
+      branchFilter.value = savedBranch;
+      if (branchFilter.value === savedBranch) {
+        activeBranchFilter = savedBranch;
+      }
+    }
+  }
+  appliedBranch = activeBranchFilter;
+
+  // Rebuild tech dropdown respecting branch
+  updateTechDropdown(true);
+
+  // 2) Tech from URL (preferred)
+  if (tech && techFilter) {
+    // If option doesn't exist yet (rare), add it so selection works
+    const hasOption = Array.from(techFilter.options).some(o => o.value === tech);
+    if (!hasOption) {
+      const opt = document.createElement("option");
+      opt.value = tech;
+      opt.textContent = tech;
+      techFilter.appendChild(opt);
+    }
+    techFilter.value = tech;
+    if (techFilter.value === tech) {
+      activeTechFilter = tech;
+      localStorage.setItem("techFilter", tech);
+    }
+  }
+  // Fallback to storage
+  if (!activeTechFilter) {
+    const savedTech = localStorage.getItem("techFilter");
+    if (savedTech && techFilter) {
+      techFilter.value = savedTech;
+      if (techFilter.value === savedTech) {
+        activeTechFilter = savedTech;
+      }
+    }
+  }
+  appliedTech = activeTechFilter;
+
+  // 3) Search from URL
+  if (q && searchBar) {
+    searchBar.value = q;
+  }
+
+  // Normalize URL to what actually applied (nice-to-have)
+  setURLParams({
+    tech: appliedTech || "",
+    branch: appliedBranch || "",
+    q: (searchBar?.value || "")
+  });
+
+  renderReviews();
+}
+
+/* When filters/search change, keep the URL in sync */
+function updateURLFromCurrentFilters(){
+  const searchBar = document.getElementById("searchBar");
+  setURLParams({
+    tech: activeTechFilter || "",
+    branch: activeBranchFilter || "",
+    q: (searchBar?.value || "")
+  });
+}
+
+/* =========================
    FETCH BACKCHARGES
 ========================= */
 async function fetchBackcharges() {
@@ -181,7 +289,8 @@ function renderReviews() {
 
     const idNumber = fields["ID Number"]; // <-- autonumber to show
     const branch = (fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ");
-    const technician = (fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id)).join(", ");
+    const techNames = (fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id));
+    const technician = techNames.join(", ");
     const customer = (fields["Customer"] || []).map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ");
     const subcontractor = (fields["Subcontractor to Backcharge"] || []).map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ");
     const photos = fields["Photos"] || [];
@@ -189,7 +298,16 @@ function renderReviews() {
 
     const idChip = (idNumber !== undefined && idNumber !== null) ? `<span class="chip id-chip">ID #${idNumber}</span>` : "";
     const branchChip = (branch && branch !== activeBranchFilter) ? `<span class="chip">${branch}</span>` : "";
-    const techChip = (technician && technician !== activeTechFilter) ? `<span class="chip">${technician}</span>` : "";
+
+    // If exactly one tech, make chip a link that deep-links to ?tech=<name>
+    let techChip = "";
+    if (techNames.length === 1) {
+      const tech = techNames[0];
+      const href = `${location.pathname}?tech=${encodeURIComponent(tech)}${activeBranchFilter ? "&branch="+encodeURIComponent(activeBranchFilter) : ""}`;
+      techChip = (tech && tech !== activeTechFilter) ? `<a class="chip" href="${href}" title="Link to ${tech}">${tech}</a>` : "";
+    } else if (technician && technician !== activeTechFilter) {
+      techChip = `<span class="chip">${technician}</span>`;
+    }
 
     const card = document.createElement("div");
     card.className = "review-card";
@@ -675,30 +793,9 @@ function updateTechDropdown(skipClear = false) {
 }
 
 function restoreFilters() {
-  const savedTech = localStorage.getItem("techFilter");
-  const savedBranch = localStorage.getItem("branchFilter");
-
-  if (savedBranch) {
-    const branchFilter = document.getElementById("branchFilter");
-    if (branchFilter) {
-      branchFilter.value = savedBranch;
-      activeBranchFilter = savedBranch;
-    }
-  }
-
-  if (savedTech) {
-    const techFilter = document.getElementById("techFilter");
-    if (techFilter) {
-      techFilter.value = savedTech;
-      activeTechFilter = savedTech;
-    }
-  }
-
-  updateTechDropdown(true);
-  renderReviews();
-
-  const branchFilterContainer = document.getElementById("branchFilterContainer");
-  if (branchFilterContainer) { /* no-op */ }
+  // We now prefer URL params over storage, but this function is called by updateTechDropdown(true)
+  // Delegate to the new URL-aware applier (it will fallback to storage if URL empty)
+  applyFiltersFromURLOrStorage();
 }
 
 /* =========================
@@ -722,6 +819,7 @@ document.addEventListener("DOMContentLoaded", () => {
         activeTechFilter = null;
         localStorage.removeItem("techFilter");
       }
+      updateURLFromCurrentFilters();
       renderReviews();
     });
   }
@@ -737,12 +835,16 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("branchFilterContainer").style.display = "block";
       }
       updateTechDropdown(); 
+      updateURLFromCurrentFilters();
       renderReviews();
     });
   }
 
   if (searchBar) {
-    searchBar.addEventListener("input", () => renderReviews());
+    searchBar.addEventListener("input", () => {
+      updateURLFromCurrentFilters();
+      renderReviews();
+    });
   }
   const backdrop = document.getElementById("sheetBackdrop");
   if (backdrop) {
@@ -758,6 +860,8 @@ document.addEventListener("DOMContentLoaded", () => {
   try{
     await preloadLinkedTables();
     await fetchBackcharges();
+    // After data & dropdowns are ready, apply URL deep-link filters (or storage)
+    applyFiltersFromURLOrStorage();
   } finally{
     hideLoading();
   }
