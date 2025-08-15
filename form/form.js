@@ -1,10 +1,4 @@
-/* =============================
-   form.js – Backcharge form (robust)
-   - Proper filterByFormula encoding (handles &, quotes)
-   - Case/space-insensitive match via LOWER/TRIM
-   - Guards against undefined records (no [0] crash)
-   - Clear console diagnostics on 422s
-   ============================= */
+
 
 // ---- Airtable config ----
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
@@ -12,43 +6,45 @@ const BASE_ID = "appQDdkj6ydqUaUkE";
 const TABLE_ID = "tbl1LwBCXM0DYQSJH"; // Backcharges table
 
 // Linked tables
-const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb";
-const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU";
-const TECH_TABLE          = "tblj6Fp0rvN7QyjRv";
-const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK";
+const CUSTOMER_TABLE = "tblQ7yvLoLKZlZ9yU";
+const TECH_TABLE     = "tblj6Fp0rvN7QyjRv";
+const BRANCH_TABLE   = "tblD2gLfkTtJYIhmK";
 
 // Cache data for filtering
-let branchRecords = {};
-let subcontractorRecords = [];
-let customerRecords = [];
-let techRecords = [];
+var branchRecords = {};   // { branchRecordId: "Office Name" }
+var customerRecords = [];
+var techRecords = [];
 
 // Excluded branches
-const excludedBranches = ["Test Branch", "Airtable Hail Mary Test", "AT HM Test"];
+var excludedBranches = ["Test Branch", "Airtable Hail Mary Test", "AT HM Test"];
 
-// ---- Utils ----
+/* ---------- Small DOM helpers (no ?. / ??) ---------- */
+function q(sel){ return document.querySelector(sel); }
+function val(sel){ var el = q(sel); return el ? el.value : ""; }
+
+/* ---------- Utils ---------- */
 function atHeaders() {
   return {
-    Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+    Authorization: "Bearer " + AIRTABLE_API_KEY,
     "Content-Type": "application/json",
   };
 }
 
 async function fetchAll(tableId) {
-  let allRecords = [];
-  let offset = null;
+  var allRecords = [];
+  var offset = null;
   try {
     do {
-      let url = `https://api.airtable.com/v0/${BASE_ID}/${tableId}?pageSize=100`;
-      if (offset) url += `&offset=${offset}`;
-      const res = await fetch(url, { headers: atHeaders() });
-      const data = await res.json();
+      var url = "https://api.airtable.com/v0/" + BASE_ID + "/" + tableId + "?pageSize=100";
+      if (offset) url += "&offset=" + encodeURIComponent(offset);
+      var res = await fetch(url, { headers: atHeaders() });
+      var data = await res.json();
       if (!res.ok) {
         console.error("fetchAll error:", tableId, data);
         break;
       }
-      if (Array.isArray(data.records)) allRecords = allRecords.concat(data.records);
-      offset = data.offset;
+      if (data && Array.isArray(data.records)) allRecords = allRecords.concat(data.records);
+      offset = data ? data.offset : null;
     } while (offset);
   } catch (err) {
     console.error("fetchAll exception:", tableId, err);
@@ -58,103 +54,147 @@ async function fetchAll(tableId) {
 
 // Escape internal double-quotes for Airtable string literal
 function escapeAirtableString(value) {
-  return String(value ?? "").replace(/"/g, '\\"');
+  var v = (value == null ? "" : value);
+  return String(v).replace(/"/g, '\\"');
 }
 
 // Build a case-insensitive, space-insensitive formula:
 //   LOWER(TRIM({Field})) = LOWER("value")
 function makeFilterFormulaInsensitive(fieldName, rawValue) {
-  const trimmed = String(rawValue ?? "").trim();
-  const safe = escapeAirtableString(trimmed);
-  return `LOWER(TRIM({${fieldName}})) = LOWER("${safe}")`;
+  var trimmed = String(rawValue == null ? "" : rawValue).trim();
+  var safe = escapeAirtableString(trimmed);
+  return "LOWER(TRIM({" + fieldName + "})) = LOWER(\"" + safe + "\")";
 }
 
 // Helper: find recordId by text match (case/space-insensitive)
 async function findRecordId(tableId, fieldName, value) {
   if (!value) return null;
-  const formula = makeFilterFormulaInsensitive(fieldName, value);
-  const url = `https://api.airtable.com/v0/${BASE_ID}/${tableId}?maxRecords=1&filterByFormula=${encodeURIComponent(formula)}`;
+  var formula = makeFilterFormulaInsensitive(fieldName, value);
+  var url = "https://api.airtable.com/v0/" + BASE_ID + "/" + tableId + "?maxRecords=1&filterByFormula=" + encodeURIComponent(formula);
 
   // For debugging visibility:
-  console.debug("[findRecordId] GET", { tableId, fieldName, value, url, formulaRaw: formula });
+  console.debug("[findRecordId] GET", { tableId: tableId, fieldName: fieldName, value: value, url: url, formulaRaw: formula });
 
-  const res = await fetch(url, { headers: atHeaders() });
-  let data = {};
+  var res = await fetch(url, { headers: atHeaders() });
+  var data = {};
   try { data = await res.json(); } catch (_) {}
 
   if (!res.ok) {
-    console.error("findRecordId error:", { status: res.status, url, data });
+    console.error("findRecordId error:", { status: res.status, url: url, data: data });
     return null;
   }
-  return data.records?.[0]?.id ?? null;
+  if (data && data.records && data.records.length && data.records[0] && data.records[0].id) {
+    return data.records[0].id;
+  }
+  return null;
 }
 
+/* ---------- Branch-aware filtering helpers ---------- */
+
+// Normalize a branch cell (could be a linked-record array of IDs or a name string)
+// -> returns an array of **branch names**
+function normalizeBranchCellToNames(cell) {
+  if (!cell) return [];
+  if (Array.isArray(cell)) {
+    return cell.map(function(v){ return branchRecords[v] || String(v); });
+  }
+  return [branchRecords[cell] || String(cell)];
+}
+
+// Does a record belong to the selected branch name, given the record's branch field?
+function recordMatchesBranchName(rec, branchFieldName, selectedBranchName) {
+  if (!selectedBranchName) return true; // no filter
+  var cell = (rec && rec.fields) ? rec.fields[branchFieldName] : undefined;
+  if (!cell) return false;
+
+  var names = normalizeBranchCellToNames(cell)
+    .map(function(s){ return String(s).trim().toLowerCase(); })
+    .filter(function(x){ return !!x; });
+
+  var target = String(selectedBranchName).trim().toLowerCase();
+  return names.indexOf(target) !== -1;
+}
+
+/* ---------- UI population ---------- */
+
 // Populate a datalist with sorted values
-function populateDatalistFromArray(records, fieldName, datalistId, branchFilter = null, branchFieldName = "Vanir Branch") {
-  const datalist = document.getElementById(datalistId);
+function populateDatalistFromArray(records, fieldName, datalistId, branchFilterName, branchFieldName) {
+  if (typeof branchFieldName === "undefined") branchFieldName = "Division";
+  var datalist = document.getElementById(datalistId);
   if (!datalist) return;
   datalist.innerHTML = ""; // clear old
 
-  let options = records
-    .filter(rec => rec.fields && rec.fields[fieldName])
-    .filter(rec => {
-      if (!branchFilter) return true;
-      if (!rec.fields[branchFieldName]) return false;
-      const v = rec.fields[branchFieldName];
-      return Array.isArray(v) ? v.includes(branchFilter) : v === branchFilter;
-    })
-    .map(rec => rec.fields[fieldName]);
+  var options = records
+    .filter(function(rec){ return rec.fields && rec.fields[fieldName]; })
+    .filter(function(rec){ return recordMatchesBranchName(rec, branchFieldName, branchFilterName || null); })
+    .map(function(rec){ return rec.fields[fieldName]; });
 
   // Deduplicate + sort alphabetically
-  options = [...new Set(options)].sort((a, b) => String(a).localeCompare(String(b)));
+  var seen = {};
+  options = options.filter(function(v){
+    var k = String(v);
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  }).sort(function(a, b){ return String(a).localeCompare(String(b)); });
 
-  options.forEach(val => {
-    const option = document.createElement("option");
+  options.forEach(function(val){
+    var option = document.createElement("option");
     option.value = val;
     datalist.appendChild(option);
   });
+
+  if (options.length === 0 && branchFilterName) {
+    console.warn("[populateDatalistFromArray] No options after filtering by branch \"" + branchFilterName + "\" on field \"" + branchFieldName + "\". Check data/linking.");
+  }
 }
 
 // Populate a <select> dropdown
-function populateSelectFromArray(records, fieldName, selectId, branchFilter = null, branchFieldName = "Vanir Branch") {
-  const select = document.getElementById(selectId);
+function populateSelectFromArray(records, fieldName, selectId, branchFilterName, branchFieldName) {
+  if (typeof branchFieldName === "undefined") branchFieldName = "Division";
+  var select = document.getElementById(selectId);
   if (!select) return;
-  select.innerHTML = `<option value="">-- Select --</option>`;
+  select.innerHTML = "<option value=\"\">-- Select --</option>";
 
-  let options = records
-    .filter(rec => rec.fields && rec.fields[fieldName])
-    .filter(rec => {
-      if (!branchFilter) return true;
-      if (!rec.fields[branchFieldName]) return false;
-      const v = rec.fields[branchFieldName];
-      const match = Array.isArray(v) ? v.includes(branchFilter) : v === branchFilter;
-      return match;
-    })
-    .map(rec => rec.fields[fieldName]);
+  var options = records
+    .filter(function(rec){ return rec.fields && rec.fields[fieldName]; })
+    .filter(function(rec){ return recordMatchesBranchName(rec, branchFieldName, branchFilterName || null); })
+    .map(function(rec){ return rec.fields[fieldName]; });
 
-  options = [...new Set(options)].sort((a, b) => String(a).localeCompare(String(b)));
+  // Deduplicate + sort
+  var seen = {};
+  options = options.filter(function(v){
+    var k = String(v);
+    if (seen[k]) return false;
+    seen[k] = true;
+    return true;
+  }).sort(function(a, b){ return String(a).localeCompare(String(b)); });
 
-  options.forEach(val => {
-    const option = document.createElement("option");
+  options.forEach(function(val){
+    var option = document.createElement("option");
     option.value = val;
     option.textContent = val;
     select.appendChild(option);
   });
+
+  if (options.length === 0 && branchFilterName) {
+    console.warn("[populateSelectFromArray] No options after filtering by branch \"" + branchFilterName + "\" on field \"" + branchFieldName + "\". Check data/linking.");
+  }
 }
 
 // Populate branch dropdown
 function populateBranchDropdown(branches) {
-  const branchSelect = document.getElementById("branch");
+  var branchSelect = document.getElementById("branch");
   if (!branchSelect) return;
-  branchSelect.innerHTML = `<option value="">-- Select Branch --</option>`;
+  branchSelect.innerHTML = "<option value=\"\">-- Select Branch --</option>";
 
-  let options = branches
-    .filter(b => b.fields && b.fields["Office Name"] && !excludedBranches.includes(b.fields["Office Name"]))
-    .map(b => b.fields["Office Name"])
-    .sort((a, b) => String(a).localeCompare(String(b)));
+  var options = branches
+    .filter(function(b){ return b.fields && b.fields["Office Name"] && excludedBranches.indexOf(b.fields["Office Name"]) === -1; })
+    .map(function(b){ return b.fields["Office Name"]; })
+    .sort(function(a, b){ return String(a).localeCompare(String(b)); });
 
-  options.forEach(name => {
-    const option = document.createElement("option");
+  options.forEach(function(name){
+    var option = document.createElement("option");
     option.value = name;
     option.textContent = name;
     branchSelect.appendChild(option);
@@ -163,13 +203,13 @@ function populateBranchDropdown(branches) {
 
 // Init dropdowns
 async function initDropdowns() {
-  const branches = await fetchAll(BRANCH_TABLE);
-  subcontractorRecords = await fetchAll(SUBCONTRACTOR_TABLE);
-  customerRecords      = await fetchAll(CUSTOMER_TABLE);
-  techRecords          = await fetchAll(TECH_TABLE);
+  var branches = await fetchAll(BRANCH_TABLE);
+  customerRecords = await fetchAll(CUSTOMER_TABLE);
+  techRecords     = await fetchAll(TECH_TABLE);
 
-  branches.forEach(b => {
-    if (b.fields && b.fields["Office Name"] && !excludedBranches.includes(b.fields["Office Name"])) {
+  // Build branch ID -> name map
+  branches.forEach(function(b){
+    if (b.fields && b.fields["Office Name"] && excludedBranches.indexOf(b.fields["Office Name"]) === -1) {
       branchRecords[b.id] = b.fields["Office Name"];
     }
   });
@@ -177,62 +217,70 @@ async function initDropdowns() {
   populateBranchDropdown(branches);
 
   // Populate full lists initially (no filter)
-  populateSelectFromArray(subcontractorRecords, "Subcontractor Company Name", "subcontractor");
-  populateSelectFromArray(customerRecords,      "Client Name",                "customer");
-  populateSelectFromArray(techRecords,          "Full Name",                  "technician");
+  populateSelectFromArray(customerRecords, "Client Name", "customer", null, "Division");
+  populateSelectFromArray(techRecords,     "Full Name",   "technician", null, "Vanir Office");
 }
 
 // Handle branch selection → filter others
-const branchEl = document.getElementById("branch");
+var branchEl = document.getElementById("branch");
 if (branchEl) {
-  branchEl.addEventListener("change", e => {
-    const branchName = e.target.value; // branch NAME
+  branchEl.addEventListener("change", function(e){
+    var branchName = e.target.value; // branch NAME
     if (branchName) {
-      populateSelectFromArray(subcontractorRecords, "Subcontractor Company Name", "subcontractor", branchName, "Vanir Branch");
-      populateSelectFromArray(customerRecords,      "Client Name",                "customer",     branchName, "Division");
-      populateSelectFromArray(techRecords,          "Full Name",                  "technician",   branchName, "Vanir Office");
+      populateSelectFromArray(customerRecords, "Client Name", "customer", branchName, "Division");
+      populateSelectFromArray(techRecords,     "Full Name",   "technician", branchName, "Vanir Office");
     } else {
-      populateSelectFromArray(subcontractorRecords, "Subcontractor Company Name", "subcontractor");
-      populateSelectFromArray(customerRecords,      "Client Name",                "customer");
-      populateSelectFromArray(techRecords,          "Full Name",                  "technician");
+      populateSelectFromArray(customerRecords, "Client Name", "customer", null, "Division");
+      populateSelectFromArray(techRecords,     "Full Name",   "technician", null, "Vanir Office");
     }
   });
 }
 
 // ---- Submit handler ----
-const formEl = document.getElementById("backchargeForm");
+var formEl = document.getElementById("backchargeForm");
 if (formEl) {
-  formEl.addEventListener("submit", async (e) => {
+  formEl.addEventListener("submit", async function(e){
     e.preventDefault();
 
-    const subcontractor = document.querySelector("#subcontractor")?.value ?? "";
-    const customer      = document.querySelector("#customer")?.value ?? "";
-    const technician    = document.querySelector("#technician")?.value ?? "";
-    const branch        = document.querySelector("#branch")?.value ?? "";
-    const jobName       = document.querySelector("#jobName")?.value ?? "";
-    const reason        = document.querySelector("#reason")?.value ?? "";
+    var customer   = val("#customer");
+    var technician = val("#technician");
+    var branch     = val("#branch");
+    var jobName    = val("#jobName");
+    var reason     = val("#reason");
 
-    const subcontractorClean = subcontractor; // findRecordId trims + normalizes
-    const customerClean      = customer;
-    const technicianClean    = technician;
-    const branchClean        = branch;
+    // Early block if any required select is empty
+    var missingRequired = [];
+    if (!customer)   missingRequired.push("Customer");
+    if (!technician) missingRequired.push("Technician");
+    if (!branch)     missingRequired.push("Branch");
+    if (missingRequired.length) {
+      alert("Please select the following before submitting:\n\n- " + missingRequired.join("\n- "));
+      return;
+    }
 
-    const amountRaw = document.querySelector("#amount")?.value;
-    const amount = amountRaw === "" || amountRaw == null ? null : parseFloat(amountRaw);
+    var customerClean   = customer;
+    var technicianClean = technician;
+    var branchClean     = branch;
 
-    // Resolve linked record IDs in parallel
-    const [subId, custId, techId, branchId] = await Promise.all([
-      findRecordId(SUBCONTRACTOR_TABLE, "Subcontractor Company Name", subcontractorClean),
-      findRecordId(CUSTOMER_TABLE,      "Client Name",                customerClean),
-      findRecordId(TECH_TABLE,          "Full Name",                  technicianClean),
-      findRecordId(BRANCH_TABLE,        "Office Name",                branchClean),
+    var amountInput = q("#amount");
+    var amountRaw = amountInput ? amountInput.value : "";
+    var amount = (amountRaw === "" || amountRaw == null) ? null : parseFloat(amountRaw);
+
+    // Resolve linked record IDs in parallel (3 lookups, 3 vars)
+    var ids = await Promise.all([
+      findRecordId(CUSTOMER_TABLE, "Client Name", customerClean),
+      findRecordId(TECH_TABLE,     "Full Name",   technicianClean),
+      findRecordId(BRANCH_TABLE,   "Office Name", branchClean)
     ]);
 
-    const missing = [];
-    if (!subId)    missing.push(`Subcontractor: "${subcontractorClean || "(empty)"}"`);
-    if (!custId)   missing.push(`Customer: "${customerClean || "(empty)"}"`);
-    if (!techId)   missing.push(`Technician: "${technicianClean || "(empty)"}"`);
-    if (!branchId) missing.push(`Branch: "${branchClean || "(empty)"}"`);
+    var custId   = ids[0];
+    var techId   = ids[1];
+    var branchId = ids[2];
+
+    var missing = [];
+    if (!custId)   missing.push('Customer: "' + (customerClean || "(empty)") + '"');
+    if (!techId)   missing.push('Technician: "' + (technicianClean || "(empty)") + '"');
+    if (!branchId) missing.push('Branch: "' + (branchClean || "(empty)") + '"');
 
     if (missing.length) {
       alert(
@@ -243,39 +291,52 @@ if (formEl) {
       return;
     }
 
-    const fields = {
-      "Subcontractor to Backcharge": [subId],
-      "Customer":                    [custId],
-      "Field Technician":            [techId],
-      "Vanir Branch":                [branchId],
-      "Job Name":                     jobName.trim() || undefined,
-      "Reason for Backcharge":        reason.trim()  || undefined,
+    var fields = {
+      "Customer":         [custId],
+      "Field Technician": [techId],
+      "Vanir Branch":     [branchId],
+      "Job Name":         (jobName && jobName.trim()) ? jobName.trim() : undefined,
+      "Issue":            (reason && reason.trim()) ? reason.trim() : undefined
     };
 
     if (amount !== null && !Number.isNaN(amount)) {
       fields["Backcharge Amount"] = amount;
     }
 
-    const payload = { fields };
+    var payload = { fields: fields };
 
     try {
-      const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}`, {
+      var res = await fetch("https://api.airtable.com/v0/" + BASE_ID + "/" + TABLE_ID, {
         method: "POST",
         headers: atHeaders(),
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
 
-      const body = await res.json().catch(() => ({}));
+      var body = {};
+      try { body = await res.json(); } catch (e2) {}
+
       if (!res.ok) {
-        console.error("Create backcharge failed:", { status: res.status, body, payload });
-        alert(`Error submitting backcharge (HTTP ${res.status}).\n\n` +
-              (body?.error?.message || JSON.stringify(body, null, 2)) +
-              "\n\nCheck console for details.");
+        console.error("Create backcharge failed:", { status: res.status, body: body, payload: payload });
+        alert(
+          "Error submitting backcharge (HTTP " + res.status + ").\n\n" +
+          (body && body.error && body.error.message ? body.error.message : JSON.stringify(body, null, 2)) +
+          "\n\nCheck console for details."
+        );
         return;
       }
 
       alert("Backcharge submitted!");
       formEl.reset();
+
+      // Rebuild dropdowns after reset (optional; keeps lists fresh)
+      var branchNameAfter = val("#branch");
+      if (branchNameAfter) {
+        populateSelectFromArray(customerRecords, "Client Name", "customer", branchNameAfter, "Division");
+        populateSelectFromArray(techRecords,     "Full Name",   "technician", branchNameAfter, "Vanir Office");
+      } else {
+        populateSelectFromArray(customerRecords, "Client Name", "customer", null, "Division");
+        populateSelectFromArray(techRecords,     "Full Name",   "technician", null, "Vanir Office");
+      }
     } catch (err) {
       console.error("Submit exception:", err);
       alert("Network or script error. See console.");
@@ -284,4 +345,4 @@ if (formEl) {
 }
 
 // ---- Bootstrap ----
-initDropdowns().catch(err => console.error("initDropdowns exception:", err));
+initDropdowns().catch(function(err){ console.error("initDropdowns exception:", err); });

@@ -3,16 +3,17 @@
 ========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
-const TABLE_ID = "tblg98QfBxRd6uivq";
+const TABLE_ID = "tbl1LwBCXM0DYQSJH";
 
 // Linked tables
-const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb";
-const CUSTOMER_TABLE = "tblQ7yvLoLKZlZ9yU";
-const TECH_TABLE = "tblj6Fp0rvN7QyjRv";
-const BRANCH_TABLE = "tblD2gLfkTtJYIhmK";
+const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb"; // “Subcontractor Company Name”
+const CUSTOMER_TABLE = "tblQ7yvLoLKZlZ9yU";     // “Client Name”
+const TECH_TABLE = "tblj6Fp0rvN7QyjRv";         // “Full Name”
+const BRANCH_TABLE = "tblD2gLfkTtJYIhmK";       // “Office Name”
 
 // Cache & State
-const recordCache = {};
+const recordCache = {};            // `${tableId}_${recId}` -> displayName
+const tableRecords = {};           // tableId -> full records[]
 let allRecords = []; 
 let activeTechFilter = null;
 let activeBranchFilter = null;
@@ -21,7 +22,14 @@ let hasRestoredFilters = false;
 let pendingDecision = null;
 let pendingRecordId = null;
 let pendingRecordName = null;
+let pendingRecordIdNumber = null; // <-- store ID Number for UI + toast
 let lastActiveCardId = null;
+
+// Dispute form elements (created once, reused)
+let disputeFormContainer = null;
+let disputeReasonInput = null;
+let disputeAmountInput = null;
+let disputeSubSelect = null;
 
 /* =========================
    UTIL / UI HELPERS
@@ -32,7 +40,6 @@ function showToast(message) {
   toast.className = "show";
   setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 2000);
 }
-
 function showLoading() {
   document.getElementById("loadingOverlay").style.display = "flex";
 }
@@ -40,6 +47,10 @@ function hideLoading() {
   document.getElementById("loadingOverlay").style.display = "none";
 }
 function vibrate(ms=20){ if (navigator.vibrate) try{ navigator.vibrate(ms);}catch(e){} }
+
+function getRecordById(id){
+  return allRecords.find(r => r.id === id) || null;
+}
 
 /* =========================
    LINKED RECORD PRELOAD
@@ -60,7 +71,10 @@ async function fetchAllRecords(tableId, keyFields) {
     offset = data.offset;
   } while (offset);
 
-  // Build cache: recordId → displayName
+  // Save full records for later filters
+  tableRecords[tableId] = records;
+
+  // Build simple display cache: recordId → displayName
   for (const rec of records) {
     let displayName = rec.id;
     for (const field of keyFields) {
@@ -142,12 +156,14 @@ function renderReviews() {
         .map(id => getCachedRecord(TECH_TABLE, id)).join(", ").toLowerCase();
       const branch = (rec.fields["Vanir Branch"] || [])
         .map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ").toLowerCase();
+      const idNumber = (rec.fields["ID Number"] ?? "").toString().toLowerCase();
 
       return jobName.includes(searchTerm) ||
              subcontractor.includes(searchTerm) ||
              customer.includes(searchTerm) ||
              technician.includes(searchTerm) ||
-             branch.includes(searchTerm);
+             branch.includes(searchTerm) ||
+             idNumber.includes(searchTerm);
     });
   }
 
@@ -157,25 +173,23 @@ function renderReviews() {
     const fields = record.fields;
 
     const jobName = fields["Job Name"] || "";
-    const reason = fields["Reason for Backcharge"] || "";
+    const reason = fields["Issue"] || "";
     let amount = fields["Backcharge Amount"] || "";
     if (amount !== "") {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
+    const idNumber = fields["ID Number"]; // <-- autonumber to show
     const branch = (fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ");
     const technician = (fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id)).join(", ");
     const customer = (fields["Customer"] || []).map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ");
     const subcontractor = (fields["Subcontractor to Backcharge"] || []).map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ");
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
-const branchChip = (branch && branch !== activeBranchFilter) 
-  ? `<span class="chip">${branch}</span>` 
-  : "";
 
-const techChip = (technician && technician !== activeTechFilter) 
-  ? `<span class="chip">${technician}</span>` 
-  : "";
+    const idChip = (idNumber !== undefined && idNumber !== null) ? `<span class="chip id-chip">ID #${idNumber}</span>` : "";
+    const branchChip = (branch && branch !== activeBranchFilter) ? `<span class="chip">${branch}</span>` : "";
+    const techChip = (technician && technician !== activeTechFilter) ? `<span class="chip">${technician}</span>` : "";
 
     const card = document.createElement("div");
     card.className = "review-card";
@@ -185,55 +199,51 @@ const techChip = (technician && technician !== activeTechFilter)
       <div class="swipe-hint swipe-approve"></div>
       <div class="swipe-hint swipe-dispute"></div>
       <br>
-      <p style="text-align:center;margin:0 0 8px 0;"><span class="job-name">${jobName}</span></p>
+      <p style="text-align:center;margin:0 0 8px 0;">
+        ${idChip}
+        <span class="job-name">${jobName}</span>
+      </p>
       <br>
       <div class="chips">
-  ${branchChip}
-  ${techChip}
-  ${customer ? `<span class="chip">Builder: ${customer}</span>` : ""}
-  ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${subcontractor}</span>` : ""}
-  ${amount ? `<span class="chip">Amount to backcharge: ${amount}</span>` : ""}
-</div>
-${
-  reason || photoCount > 0
-    ? `
-    <div class="reason-photo-row">
-      ${reason ? `<div class="kv"><b>Reason:</b> ${reason}</div>` : ""}
+        ${branchChip}
+        ${techChip}
+        ${customer ? `<span class="chip">Builder: ${customer}</span>` : ""}
+        ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${subcontractor}</span>` : ""}
+        ${amount ? `<span class="chip">Amount to backcharge: ${amount}</span>` : ""}
+      </div>
       ${
-        photoCount > 0
-          ? `<div class="photos"><a href="#" class="photo-link" data-id="${record.id}">📷 ${photoCount} image(s)</a></div>`
+        reason || photoCount > 0
+          ? `
+            <div class="reason-photo-row">
+              ${reason ? `<div class="kv"><b>Reason:</b> ${reason}</div>` : ""}
+              ${photoCount > 0 ? `<div class="photos"><a href="#" class="photo-link" data-id="${record.id}">📷 ${photoCount} image(s)</a></div>` : ""}
+            </div>
+          `
           : ""
       }
-    </div>
-  `
-    : ""
-}
       <div class="decision-buttons">
         <button class="dispute" data-action="Dispute">Dispute</button>
         <button class="approve" data-action="Approve">Approve</button>
       </div>
     `;
 
-    // Photo modal
     if (photoCount > 0) {
       const a = card.querySelector(".photo-link");
-      a.addEventListener("click", (e) => {
-        e.preventDefault();
-        openPhotoModal(photos);
-      });
+      a.addEventListener("click", (e) => { e.preventDefault(); openPhotoModal(photos); });
     }
 
-    // Quick actions context
-    card.addEventListener("click", () => {
-      lastActiveCardId = record.id;
-      pendingRecordName = jobName || "Unknown Job";
+    // Keep the latest card context for bottom sheet defaults
+    card.addEventListener("click", () => { 
+      lastActiveCardId = record.id; 
+      pendingRecordName = jobName || "Unknown Job"; 
+      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null; // <-- store ID
     });
-    card.addEventListener("focus", () => {
-      lastActiveCardId = record.id;
-      pendingRecordName = jobName || "Unknown Job";
+    card.addEventListener("focus", () => { 
+      lastActiveCardId = record.id; 
+      pendingRecordName = jobName || "Unknown Job"; 
+      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null; // <-- store ID
     });
 
-    // Buttons → open sheet
     card.querySelectorAll(".decision-buttons button").forEach(btn => {
       btn.addEventListener("click", () => {
         const action = btn.getAttribute("data-action");
@@ -241,15 +251,9 @@ ${
       });
     });
 
-    // Swipe gestures
     attachSwipeHandlers(card, (dir) => {
-      if (dir === "right") {
-        vibrate(15);
-        openDecisionSheet(record.id, jobName, "Approve");
-      } else if (dir === "left") {
-        vibrate(15);
-        openDecisionSheet(record.id, jobName, "Dispute");
-      }
+      if (dir === "right") { vibrate(15); openDecisionSheet(record.id, jobName, "Approve"); }
+      else if (dir === "left") { vibrate(15); openDecisionSheet(record.id, jobName, "Dispute"); }
     });
 
     container.appendChild(card);
@@ -278,8 +282,7 @@ function attachSwipeHandlers(el, onCommit){
     const dx = x - startX;
     const dy = y - startY;
 
-    // prevent vertical drags from triggering swipe
-    if (Math.abs(dy) > Math.abs(dx)) return;
+    if (Math.abs(dy) > Math.abs(dx)) return; // ignore vertical drags
 
     deltaX = dx;
     el.style.transform = `translateX(${dx}px) rotate(${dx*0.02}deg)`;
@@ -329,9 +332,119 @@ function openPhotoModal(photos) {
 
   modal.style.display = "flex";
   closeBtn.onclick = () => modal.style.display = "none";
-  modal.onclick = (event) => {
-    if (event.target === modal) modal.style.display = "none";
-  };
+  modal.onclick = (event) => { if (event.target === modal) modal.style.display = "none"; };
+}
+
+/* =========================
+   DISPUTE FORM (adds Subcontractor dropdown)
+========================= */
+function ensureDisputeForm(sheet) {
+  if (!disputeFormContainer) {
+    disputeFormContainer = document.createElement("div");
+    disputeFormContainer.id = "disputeFormContainer";
+    disputeFormContainer.style.marginTop = "12px";
+    disputeFormContainer.style.display = "none";
+
+    // Subcontractor select (REQUIRED for Dispute)
+    const subLabel = document.createElement("label");
+    subLabel.setAttribute("for", "disputeSubSelect");
+    subLabel.textContent = "Subcontractor to backcharge (required)";
+
+    disputeSubSelect = document.createElement("select");
+    disputeSubSelect.id = "disputeSubSelect";
+    disputeSubSelect.style.width = "100%";
+    disputeSubSelect.style.boxSizing = "border-box";
+    disputeSubSelect.required = true;
+
+    // Reason textarea
+    const reasonLabel = document.createElement("label");
+    reasonLabel.setAttribute("for", "disputeReasonInput");
+    reasonLabel.textContent = "Reason for dispute (required)";
+
+    disputeReasonInput = document.createElement("textarea");
+    disputeReasonInput.id = "disputeReasonInput";
+    disputeReasonInput.placeholder = "Enter the reason…";
+    disputeReasonInput.rows = 3;
+    disputeReasonInput.style.width = "100%";
+    disputeReasonInput.style.boxSizing = "border-box";
+    disputeReasonInput.style.margin = "6px 0 10px 0";
+
+    // Amount input
+    const amountLabel = document.createElement("label");
+    amountLabel.setAttribute("for", "disputeAmountInput");
+    amountLabel.textContent = "Backcharge Amount (required)";
+
+    disputeAmountInput = document.createElement("input");
+    disputeAmountInput.id = "disputeAmountInput";
+    disputeAmountInput.type = "text";
+    disputeAmountInput.inputMode = "decimal";
+    disputeAmountInput.placeholder = "$0.00";
+    disputeAmountInput.style.width = "100%";
+    disputeAmountInput.style.boxSizing = "border-box";
+    disputeAmountInput.addEventListener("input", () => {
+      disputeAmountInput.value = disputeAmountInput.value.replace(/[^\d.]/g, "");
+    });
+
+    disputeFormContainer.appendChild(subLabel);
+    disputeFormContainer.appendChild(disputeSubSelect);
+    disputeFormContainer.appendChild(reasonLabel);
+    disputeFormContainer.appendChild(disputeReasonInput);
+    disputeFormContainer.appendChild(amountLabel);
+    disputeFormContainer.appendChild(disputeAmountInput);
+
+    sheet.appendChild(disputeFormContainer);
+  }
+}
+
+// Build subcontractor options filtered by the record's Vanir Branch
+function populateSubcontractorOptionsForRecord(record){
+  // Get branch names on the current record
+  const recordBranchNames = (record.fields["Vanir Branch"] || [])
+    .map(id => getCachedRecord(BRANCH_TABLE, id));
+
+  const subs = (tableRecords[SUBCONTRACTOR_TABLE] || []);
+  const options = [];
+
+  // Helper: get sub's branch names (assuming linked field "Vanir Branch" on the sub table)
+  function getSubBranchNames(sub){
+    const ids = sub.fields["Vanir Branch"] || [];
+    return Array.isArray(ids) ? ids.map(id => getCachedRecord(BRANCH_TABLE, id)) : [];
+  }
+
+  // Build filtered list
+  subs.forEach(sub => {
+    const name = sub.fields["Subcontractor Company Name"];
+    if (!name) return;
+
+    const subBranchNames = getSubBranchNames(sub);
+    const intersects = recordBranchNames.length === 0
+      ? true // if record has no branch, show all
+      : subBranchNames.some(b => recordBranchNames.includes(b));
+
+    if (intersects) {
+      options.push({ id: sub.id, name });
+    }
+  });
+
+  // Fallback: if no matches, show all subs
+  if (options.length === 0) {
+    subs.forEach(sub => {
+      const name = sub.fields["Subcontractor Company Name"];
+      if (name) options.push({ id: sub.id, name });
+    });
+  }
+
+  // Sort A→Z
+  options.sort((a,b)=> a.name.localeCompare(b.name));
+
+  // Fill the select
+  disputeSubSelect.innerHTML = `<option value="">-- Select subcontractor --</option>`;
+  options.forEach(o => {
+    const opt = document.createElement("option");
+    opt.value = o.id;         // record ID (linked record needs this)
+    opt.textContent = o.name; // display label
+    disputeSubSelect.appendChild(opt);
+  });
 }
 
 /* =========================
@@ -342,12 +455,17 @@ function openDecisionSheet(recordId, jobName, decision) {
   pendingRecordName = jobName;
   pendingDecision = decision;
 
+  const rec = getRecordById(recordId);
+  pendingRecordIdNumber = rec?.fields?.["ID Number"] ?? null; // <-- capture ID Number for toast
+
   const sheet = document.getElementById("decisionSheet");
   const title = document.getElementById("decisionTitle");
   const msg = document.getElementById("decisionMessage");
   const approveBtn = document.getElementById("confirmApproveBtn");
   const disputeBtn = document.getElementById("confirmDisputeBtn");
   const backdrop = document.getElementById("sheetBackdrop");
+
+  ensureDisputeForm(sheet);
 
   title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
   msg.innerHTML = `Are you sure you want to mark <strong>${jobName || "Unknown Job"}</strong> as "<strong>${decision}</strong>"?`;
@@ -356,19 +474,28 @@ function openDecisionSheet(recordId, jobName, decision) {
   approveBtn.style.display = decision === "Approve" ? "block" : "none";
   disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
 
-  // Add attention pulse to the active action
+  if (decision === "Dispute") {
+    populateSubcontractorOptionsForRecord(rec);
+    disputeFormContainer.style.display = "block";
+    disputeReasonInput.value = "";
+    disputeAmountInput.value = "";
+    disputeSubSelect.value = "";
+  } else {
+    disputeFormContainer.style.display = "none";
+    disputeReasonInput.value = "";
+    disputeAmountInput.value = "";
+    disputeSubSelect.value = "";
+  }
+
   approveBtn.classList.toggle("attn", decision === "Approve");
   disputeBtn.classList.toggle("attn", decision === "Dispute");
 
-  // Optional icons to reinforce action (keep or remove)
   approveBtn.textContent = "✔ Approve";
   disputeBtn.textContent = "✖ Dispute";
 
-  // Open sheet + backdrop
   sheet.classList.add("open");
   if (backdrop) backdrop.classList.add("show");
 
-  // Accessibility & keyboard escape
   sheet.setAttribute("role", "dialog");
   sheet.setAttribute("aria-modal", "true");
   sheet.setAttribute("aria-labelledby", "decisionTitle");
@@ -387,38 +514,81 @@ function closeDecisionSheet(){
   sheet.classList.remove("open");
   if (backdrop) backdrop.classList.remove("show");
 
-  // Remove attention pulse
   approveBtn.classList.remove("attn");
   disputeBtn.classList.remove("attn");
 
-  // Reset state
+  if (disputeFormContainer) {
+    disputeFormContainer.style.display = "none";
+    if (disputeReasonInput) disputeReasonInput.value = "";
+    if (disputeAmountInput) disputeAmountInput.value = "";
+    if (disputeSubSelect) disputeSubSelect.value = "";
+  }
+
   pendingDecision = null;
   pendingRecordId = null;
   pendingRecordName = null;
+  pendingRecordIdNumber = null;
 
   document.removeEventListener("keydown", onSheetEsc);
 }
-
-// Close on ESC
-function onSheetEsc(e){
-  if (e.key === "Escape") closeDecisionSheet();
-}
+function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
 
 /* =========================
    PATCH TO AIRTABLE
 ========================= */
+// =========================
+// PATCH TO AIRTABLE
+// =========================
 async function confirmDecision(decision) {
   if (!pendingRecordId || !decision) return;
 
+  const fieldsToPatch = { "Approve or Dispute": decision };
+
+  if (decision === "Dispute") {
+    // Require subcontractor selection
+    const selectedSubId = disputeSubSelect?.value?.trim();
+    if (!selectedSubId) {
+      alert("Please select the subcontractor to backcharge.");
+      disputeSubSelect.focus();
+      return;
+    }
+    fieldsToPatch["Subcontractor to Backcharge"] = [selectedSubId]; // linked record array
+
+    // Require reason
+    const reasonVal = disputeReasonInput?.value.trim();
+    if (!reasonVal) {
+      alert("Please enter the reason for the dispute.");
+      disputeReasonInput.focus();
+      return;
+    }
+    fieldsToPatch["Reason for dispute"] = reasonVal;
+
+    // Require amount (numeric)
+    const amountRaw = disputeAmountInput?.value.trim();
+    if (!amountRaw) {
+      alert("Please enter the backcharge amount.");
+      disputeAmountInput.focus();
+      return;
+    }
+    const cleaned = amountRaw.replace(/[^0-9.]/g, "");
+    const parsed = parseFloat(cleaned);
+    if (isNaN(parsed) || parsed < 0) {
+      alert("Please enter a valid positive numeric Backcharge Amount (e.g., 1250.00).");
+      disputeAmountInput.focus();
+      return;
+    }
+    fieldsToPatch["Backcharge Amount"] = parsed;
+  }
+
   showLoading();
-  try{
+  try {
     const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${AIRTABLE_API_KEY}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ fields: { "Approve or Dispute": decision } })
+      body: JSON.stringify({ fields: fieldsToPatch })
     });
 
     if (!res.ok) {
@@ -429,9 +599,13 @@ async function confirmDecision(decision) {
     }
 
     vibrate(30);
-    showToast(`${pendingRecordName || "Record"} marked as ${decision}`);
-    await fetchBackcharges(); // refresh the list
-  } finally{
+
+    // Success toast includes the ID Number if available
+    const idFrag = (pendingRecordIdNumber !== null && pendingRecordIdNumber !== undefined) ? `ID #${pendingRecordIdNumber} – ` : "";
+    showToast(`${idFrag}${pendingRecordName || "Record"} marked as ${decision}`);
+
+    await fetchBackcharges();
+  } finally {
     hideLoading();
     closeDecisionSheet();
   }
@@ -455,7 +629,6 @@ function populateFilterDropdowns() {
     branchFilter.innerHTML += `<option value="${name}">${name}</option>`;
   });
 
-  // Build tech based on (optionally) selected branch
   updateTechDropdown(true);
 }
 
@@ -495,7 +668,6 @@ function updateTechDropdown(skipClear = false) {
     localStorage.removeItem("techFilter");
   }
 
-  // Only restore once
   if (skipClear && !hasRestoredFilters) {
     hasRestoredFilters = true;
     restoreFilters();
@@ -506,7 +678,6 @@ function restoreFilters() {
   const savedTech = localStorage.getItem("techFilter");
   const savedBranch = localStorage.getItem("branchFilter");
 
-  // Branch first
   if (savedBranch) {
     const branchFilter = document.getElementById("branchFilter");
     if (branchFilter) {
@@ -515,7 +686,6 @@ function restoreFilters() {
     }
   }
 
-  // Then tech
   if (savedTech) {
     const techFilter = document.getElementById("techFilter");
     if (techFilter) {
@@ -524,25 +694,21 @@ function restoreFilters() {
     }
   }
 
-  updateTechDropdown(true); // rebuild tech dropdown respecting branch
+  updateTechDropdown(true);
   renderReviews();
 
-  // Hide branch chooser if a branch is set
   const branchFilterContainer = document.getElementById("branchFilterContainer");
-  if (branchFilterContainer) {
-  }
+  if (branchFilterContainer) { /* no-op */ }
 }
 
 /* =========================
    EVENT WIRING
 ========================= */
 document.addEventListener("DOMContentLoaded", () => {
-  // Bottom sheet buttons
   document.getElementById("cancelDecisionBtn").onclick = closeDecisionSheet;
   document.getElementById("confirmApproveBtn").onclick = ()=> confirmDecision("Approve");
   document.getElementById("confirmDisputeBtn").onclick = ()=> confirmDecision("Dispute");
 
-  // Filters
   const techFilter = document.getElementById("techFilter");
   const branchFilter = document.getElementById("branchFilter");
   const searchBar = document.getElementById("searchBar");
