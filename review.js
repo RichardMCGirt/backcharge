@@ -296,7 +296,7 @@ function renderReviews() {
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
 
-    const idChip = (idNumber !== undefined && idNumber !== null) ? `<span class="chip id-chip">ID #${idNumber}</span>` : "";
+    const idChip = (idNumber !== undefined && idNumber !== null) ? `<span >ID #${idNumber}</span>` : "";
     const branchChip = (branch && branch !== activeBranchFilter) ? `<span class="chip">${branch}</span>` : "";
 
     // If exactly one tech, make chip a link that deep-links to ?tech=<name>
@@ -317,10 +317,17 @@ function renderReviews() {
       <div class="swipe-hint swipe-approve"></div>
       <div class="swipe-hint swipe-dispute"></div>
       <br>
-      <p style="text-align:center;margin:0 0 8px 0;">
-        ${idChip}
-        <span class="job-name">${jobName}</span>
-      </p>
+<p style="
+  margin:0 0 8px 0;
+  padding:0 52px;        /* add horizontal breathing room */
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+">
+  ${idChip}
+  <span class="job-name" style="flex:1; text-align:right;">${jobName}</span>
+</p>
+
       <br>
       <div class="chips">
         ${branchChip}

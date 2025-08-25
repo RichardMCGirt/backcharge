@@ -259,15 +259,36 @@ input[type="text"] {
 #reviewContainer {
   max-width: 85%;
   margin: 0 auto; /* centers horizontally */
+    overflow: visible;             /* <-- important */
+  position: relative;
 }
-
+.review-card.swiping {
+  z-index: 10;                   /* float above neighbors */
+  box-shadow: 0 10px 30px rgba(0,0,0,.25);
+}
+.review-card {
+  position: relative;
+  will-change: transform, opacity, box-shadow, height, margin;
+  transition: transform .15s ease, opacity .15s ease, box-shadow .15s ease;
+  transform-origin: 50% 50%;
+}
 /* Make images and media scale down instead of overflowing */
 img, video {
   max-width: 100%;
   height: auto;
   display: block;
 }
-
+.review-card.leaving {
+  pointer-events: none;
+}
+.review-card .swipe-hint {
+  opacity: 0;
+  transition: opacity .12s ease;
+}
+.review-card.swiping-left .swipe-hint.swipe-dispute,
+.review-card.swiping-right .swipe-hint.swipe-approve {
+  opacity: 0.85;
+}
 /* Photo modal gallery — prevent side scroll overflow */
 #photoGallery {
   flex-wrap: wrap; /* Stack on small screens */
