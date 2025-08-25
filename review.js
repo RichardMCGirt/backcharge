@@ -329,26 +329,38 @@ function renderReviews() {
         ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${subcontractor}</span>` : ""}
         ${amount ? `<span class="chip">Amount to backcharge: ${amount}</span>` : ""}
       </div>
-      ${
-        reason || photoCount > 0
-          ? `
-            <div class="reason-photo-row">
-              ${reason ? `<div class="kv"><b>Reason:</b> ${reason}</div>` : ""}
-              ${photoCount > 0 ? `<div class="photos"><a href="#" class="photo-link" data-id="${record.id}">📷 ${photoCount} image(s)</a></div>` : ""}
-            </div>
-          `
-          : ""
-      }
-      <div class="decision-buttons">
-        <button class="dispute" data-action="Dispute">Dispute</button>
-        <button class="approve" data-action="Approve">Approve</button>
+     ${
+  reason || photoCount > 0
+    ? `
+      <div class="reason-photo-row">
+        ${reason ? `<div class="kv"><b>Reason:</b> ${reason}</div>` : ""}
+        ${
+          photoCount > 0 
+            ? `<div class="photos">
+                 <a href="#" class="photo-link" data-id="${record.id}">
+                   ${photoCount} image${photoCount > 1 ? "s" : ""}
+                 </a>
+               </div>` 
+            : ""
+        }
       </div>
-    `;
+    `
+    : ""
+}
+<div class="decision-buttons">
+  <button class="dispute" data-action="Dispute">Dispute</button>
+  <button class="approve" data-action="Approve">Approve</button>
+</div>
+`;
 
-    if (photoCount > 0) {
-      const a = card.querySelector(".photo-link");
-      a.addEventListener("click", (e) => { e.preventDefault(); openPhotoModal(photos); });
-    }
+if (photoCount > 0) {
+  const a = card.querySelector(".photo-link");
+  a.addEventListener("click", (e) => { 
+    e.preventDefault(); 
+    openPhotoModal(photos); 
+  });
+}
+
 
     // Keep the latest card context for bottom sheet defaults
     card.addEventListener("click", () => { 
