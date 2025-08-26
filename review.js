@@ -51,6 +51,38 @@ function vibrate(ms=20){ if (navigator.vibrate) try{ navigator.vibrate(ms);}catc
 function getRecordById(id){
   return allRecords.find(r => r.id === id) || null;
 }
+// Normalizes field values that might be (a) array of record IDs, (b) array of strings, or (c) a single string.
+// If tableId is provided, any array items that look like record IDs are resolved via getCachedRecord(tableId, id).
+function normalizeNames(fieldVal, tableId = null) {
+  if (Array.isArray(fieldVal)) {
+    return fieldVal
+      .map(v => {
+        if (typeof v === "string") {
+          // If looks like an Airtable record id and we know the table, resolve to display name
+          if (tableId && /^rec[A-Za-z0-9]{14}$/.test(v)) {
+            return getCachedRecord(tableId, v);
+          }
+          return v; // already a display string
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+  if (typeof fieldVal === "string") {
+    // Could be a single name or "Name1, Name2"
+    return fieldVal.split(",").map(s => s.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+// Convenience getters for your two key fields
+function getTechNamesFromRecord(rec) {
+  return normalizeNames(rec?.fields?.["Field Technician"] ?? [], TECH_TABLE);
+}
+function getBranchNamesFromRecord(rec) {
+  // Typically still linked-record IDs; normalize anyway
+  return normalizeNames(rec?.fields?.["Vanir Branch"] ?? [], BRANCH_TABLE);
+}
 
 /* =========================
    LINKED RECORD PRELOAD
@@ -241,13 +273,13 @@ function renderReviews() {
   // Apply filters
   if (activeTechFilter) {
     records = records.filter(rec => {
-      const techs = (rec.fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id));
+      const techs = getTechNamesFromRecord(rec);
       return techs.includes(activeTechFilter);
     });
   }
   if (activeBranchFilter) {
     records = records.filter(rec => {
-      const branches = (rec.fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id));
+      const branches = getBranchNamesFromRecord(rec);
       return branches.includes(activeBranchFilter);
     });
   }
@@ -256,14 +288,23 @@ function renderReviews() {
   if (searchTerm) {
     records = records.filter(rec => {
       const jobName = (rec.fields["Job Name"] || "").toLowerCase();
-      const subcontractor = (rec.fields["Subcontractor to Backcharge"] || [])
-        .map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ").toLowerCase();
-      const customer = (rec.fields["Customer"] || [])
-        .map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ").toLowerCase();
-      const technician = (rec.fields["Field Technician"] || [])
-        .map(id => getCachedRecord(TECH_TABLE, id)).join(", ").toLowerCase();
-      const branch = (rec.fields["Vanir Branch"] || [])
-        .map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ").toLowerCase();
+
+      const subcontractor = normalizeNames(rec.fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE)
+        .join(", ")
+        .toLowerCase();
+
+      const customer = normalizeNames(rec.fields["Customer"] || [], CUSTOMER_TABLE)
+        .join(", ")
+        .toLowerCase();
+
+      const technician = getTechNamesFromRecord(rec)
+        .join(", ")
+        .toLowerCase();
+
+      const branch = getBranchNamesFromRecord(rec)
+        .join(", ")
+        .toLowerCase();
+
       const idNumber = (rec.fields["ID Number"] ?? "").toString().toLowerCase();
 
       return jobName.includes(searchTerm) ||
@@ -288,11 +329,11 @@ function renderReviews() {
     }
 
     const idNumber = fields["ID Number"]; // <-- autonumber to show
-    const branch = (fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id)).join(", ");
-    const techNames = (fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id));
+    const branch = getBranchNamesFromRecord(record).join(", ");
+    const techNames = getTechNamesFromRecord(record);
     const technician = techNames.join(", ");
-    const customer = (fields["Customer"] || []).map(id => getCachedRecord(CUSTOMER_TABLE, id)).join(", ");
-    const subcontractor = (fields["Subcontractor to Backcharge"] || []).map(id => getCachedRecord(SUBCONTRACTOR_TABLE, id)).join(", ");
+    const customer = normalizeNames(fields["Customer"] || [], CUSTOMER_TABLE).join(", ");
+    const subcontractor = normalizeNames(fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE).join(", ");
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
 
@@ -360,14 +401,13 @@ function renderReviews() {
 </div>
 `;
 
-if (photoCount > 0) {
-  const a = card.querySelector(".photo-link");
-  a.addEventListener("click", (e) => { 
-    e.preventDefault(); 
-    openPhotoModal(photos); 
-  });
-}
-
+    if (photoCount > 0) {
+      const a = card.querySelector(".photo-link");
+      a.addEventListener("click", (e) => { 
+        e.preventDefault(); 
+        openPhotoModal(photos); 
+      });
+    }
 
     // Keep the latest card context for bottom sheet defaults
     card.addEventListener("click", () => { 
@@ -397,11 +437,18 @@ if (photoCount > 0) {
   });
 }
 
+
 /* =========================
    SWIPE HANDLERS
 ========================= */
 function attachSwipeHandlers(el, onCommit){
   let startX = 0, startY = 0, deltaX = 0, active = false;
+  let startHeight = 0;
+  let horizontalLock = false;
+
+  const resetClasses = () => {
+    el.classList.remove("swiping", "swiping-left", "swiping-right", "leaving");
+  };
 
   el.addEventListener("touchstart", (e)=>{
     if (!e.touches || e.touches.length !== 1) return;
@@ -409,46 +456,111 @@ function attachSwipeHandlers(el, onCommit){
     startY = e.touches[0].clientY;
     deltaX = 0;
     active = true;
+    horizontalLock = false;
+    startHeight = el.offsetHeight;
+
     el.style.transition = "none";
+    el.classList.add("swiping");
   }, {passive:true});
 
   el.addEventListener("touchmove", (e)=>{
     if (!active || !e.touches || e.touches.length !== 1) return;
+
     const x = e.touches[0].clientX;
     const y = e.touches[0].clientY;
     const dx = x - startX;
     const dy = y - startY;
 
-    if (Math.abs(dy) > Math.abs(dx)) return; // ignore vertical drags
+    // Decide if this is really a horizontal gesture
+    if (!horizontalLock) {
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)*1.2) {
+        horizontalLock = true;
+      } else if (Math.abs(dy) > Math.abs(dx)) {
+        // vertical → bail out (let the page scroll)
+        return;
+      }
+    }
+    if (!horizontalLock) return;
 
     deltaX = dx;
-    el.style.transform = `translateX(${dx}px) rotate(${dx*0.02}deg)`;
-    el.classList.toggle("swiping-right", dx > 12);
-    el.classList.toggle("swiping-left", dx < -12);
+
+    // Progress based on container width for consistent feel
+    const container = el.parentElement || document.body;
+    const w = Math.max(container.clientWidth, 1);
+    const progress = Math.min(1, Math.abs(dx) / (w * 0.6));
+
+    // Livelier transform: translate + tiny rotation + subtle scale
+    const rotate = Math.max(-10, Math.min(10, dx * 0.03));   // clamp to ±10deg
+    const scale  = 1 + (progress * 0.02);                    // up to +2% scale
+    const opacity = 1 - (progress * 0.1);                    // fade just a touch
+
+    el.style.transform = `translateX(${dx}px) rotate(${rotate}deg) scale(${scale})`;
+    el.style.opacity = String(opacity);
+    el.classList.toggle("swiping-right", dx > 8);
+    el.classList.toggle("swiping-left",  dx < -8);
   }, {passive:true});
 
   el.addEventListener("touchend", ()=>{
     if (!active) return;
-    el.style.transition = "transform .15s ease";
+
+    el.style.transition = "transform .18s ease, opacity .18s ease, box-shadow .18s ease";
     el.classList.remove("swiping-right", "swiping-left");
 
-    const threshold = 80; // px
-    if (deltaX > threshold) {
-      el.style.transform = "translateX(120vw)";
-      setTimeout(()=>{ el.style.transform = ""; }, 250);
-      onCommit && onCommit("right");
-    } else if (deltaX < -threshold) {
-      el.style.transform = "translateX(-120vw)";
-      setTimeout(()=>{ el.style.transform = ""; }, 250);
-      onCommit && onCommit("left");
+    const threshold = Math.min((el.parentElement?.clientWidth || window.innerWidth) * 0.28, 160); // px
+    const commitRight = deltaX > threshold;
+    const commitLeft  = deltaX < -threshold;
+
+    if (commitRight || commitLeft) {
+      // Slide entirely off-screen (beyond viewport), then collapse
+      const direction = commitRight ? 1 : -1;
+      const off = (window.innerWidth || 1000) + el.offsetWidth;
+
+      el.classList.add("leaving");
+      el.style.transform = `translateX(${direction * off}px) rotate(${direction*8}deg) scale(1.02)`;
+      el.style.opacity = "0.0";
+
+      // After it leaves, collapse height so the list reflows smoothly
+      const collapse = () => {
+        // Freeze current height, then animate to 0
+        el.style.transition = "height .18s ease, margin .18s ease, padding .18s ease";
+        el.style.height = `${startHeight}px`;
+        // force reflow
+        void el.offsetHeight;
+        el.style.height = "0px";
+        el.style.marginTop = "0px";
+        el.style.marginBottom = "0px";
+        el.style.paddingTop = "0px";
+        el.style.paddingBottom = "0px";
+
+        // Call the commit callback slightly after the collapse begins
+        setTimeout(() => {
+          onCommit && onCommit(commitRight ? "right" : "left");
+          // restore styles so re-rendered cards look normal
+          el.style.transform = "";
+          el.style.opacity = "";
+          el.style.height = "";
+          el.style.marginTop = "";
+          el.style.marginBottom = "";
+          el.style.paddingTop = "";
+          el.style.paddingBottom = "";
+          resetClasses();
+        }, 120);
+      };
+
+      // Give the slide-out a moment before collapsing
+      setTimeout(collapse, 180);
     } else {
-      el.style.transform = ""; // snap back
+      // Snap back
+      el.style.transform = "";
+      el.style.opacity = "";
+      setTimeout(() => resetClasses(), 180);
     }
 
     active = false;
     deltaX = 0;
   });
 }
+
 
 /* =========================
    PHOTO MODAL
@@ -776,8 +888,8 @@ function updateTechDropdown(skipClear = false) {
   const techSet = new Set();
 
   for (const rec of allRecords) {
-    const recordBranches = (rec.fields["Vanir Branch"] || []).map(id => getCachedRecord(BRANCH_TABLE, id));
-    const recordTechs = (rec.fields["Field Technician"] || []).map(id => getCachedRecord(TECH_TABLE, id));
+    const recordBranches = getBranchNamesFromRecord(rec);
+    const recordTechs = getTechNamesFromRecord(rec);
     if (!selectedBranch || recordBranches.includes(selectedBranch)) {
       recordTechs.forEach(t => techSet.add(t));
     }
@@ -810,6 +922,7 @@ function updateTechDropdown(skipClear = false) {
     restoreFilters();
   }
 }
+
 
 function restoreFilters() {
   // We now prefer URL params over storage, but this function is called by updateTechDropdown(true)

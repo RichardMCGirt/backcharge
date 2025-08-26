@@ -389,3 +389,21 @@ img, video {
 /* Slightly bolder header/message */
 .sheet h3{ font-size: 18px; letter-spacing: .2px; }
 .sheet p { font-size: 15px; }
+@media (max-width: 768px) {
+  #reviewContainer {
+    max-width: 95%;      /* let it breathe edge-to-edge a bit more */
+  }
+  .review-card {
+    font-size: 0.9rem;   /* slightly smaller text */
+    padding: 10px;       /* tighter padding */
+    margin-bottom: 10px; /* reduce card spacing */
+    height: 95% !important;
+  }
+  .review-card .job-name {
+    font-size: 1rem;     /* keep job name readable */
+  }
+  .review-card .chip {
+    font-size: 0.8rem;   /* shrink chips but still legible */
+    padding: 2px 6px;
+  }
+}
