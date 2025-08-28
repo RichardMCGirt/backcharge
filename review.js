@@ -27,9 +27,9 @@ let lastActiveCardId = null;
 
 // Dispute form elements (created once, reused)
 let disputeFormContainer = null;
-let disputeReasonDisplay = null;  // <-- read-only original reason
-let disputeAmountInput = null;    // <-- editable amount only
-let disputeSubSelect = null;
+let disputeReasonDisplay = null;   // read-only original reason
+let disputeAmountInput = null;     // editable amount only
+let disputeSubDisplay = null;      // read-only subcontractor(s)
 
 /* =========================
    UTIL / UI HELPERS
@@ -301,7 +301,7 @@ function renderReviews() {
     records = records.filter(rec => {
       const jobName = (rec.fields["Job Name"] || "").toLowerCase();
 
-      const subcontractor = normalizeNames(rec.fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE)
+      const subcontractor = normalizeNames(rec.fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_table)
         .join(", ")
         .toLowerCase();
 
@@ -583,7 +583,7 @@ function openPhotoModal(photos) {
 }
 
 /* =========================
-   DISPUTE FORM (read-only reason + editable amount + Subcontractor)
+   DISPUTE FORM (read-only subcontractor + read-only reason + editable amount)
 ========================= */
 function ensureDisputeForm(sheet) {
   if (!disputeFormContainer) {
@@ -592,20 +592,28 @@ function ensureDisputeForm(sheet) {
     disputeFormContainer.style.marginTop = "12px";
     disputeFormContainer.style.display = "none";
 
-    // Subcontractor select (REQUIRED for Dispute)
+    // Subcontractor (read-only)
     const subLabel = document.createElement("label");
-    subLabel.setAttribute("for", "disputeSubSelect");
-    subLabel.textContent = "Subcontractor to backcharge (required)";
+    subLabel.textContent = "Subcontractor to backcharge";
 
-    disputeSubSelect = document.createElement("select");
-    disputeSubSelect.id = "disputeSubSelect";
-    disputeSubSelect.style.width = "100%";
-    disputeSubSelect.style.boxSizing = "border-box";
-    disputeSubSelect.required = true;
+    disputeSubDisplay = document.createElement("div");
+    disputeSubDisplay.id = "disputeSubDisplay";
+    disputeSubDisplay.style.width = "100%";
+    disputeSubDisplay.style.boxSizing = "border-box";
+    disputeSubDisplay.style.padding = "10px";
+    disputeSubDisplay.style.border = "1px solid #e1e4e8";
+    disputeSubDisplay.style.borderRadius = "8px";
+    disputeSubDisplay.style.background = "#f8fafc";
+    disputeSubDisplay.style.margin = "6px 0 10px 0";
+    disputeSubDisplay.style.whiteSpace = "pre-wrap";
+    disputeSubDisplay.style.background = "#f3f4f6";   // light gray
+disputeSubDisplay.style.color = "#111";           // dark text
+disputeSubDisplay.style.fontSize = "14px";
+disputeSubDisplay.style.lineHeight = "1.5";
 
     // Original Reason (read-only)
     const existingReasonLabel = document.createElement("label");
-    existingReasonLabel.textContent = "Original Reason (read-only)";
+    existingReasonLabel.textContent = "Reason";
 
     disputeReasonDisplay = document.createElement("div");
     disputeReasonDisplay.id = "disputeReasonDisplay";
@@ -617,11 +625,15 @@ function ensureDisputeForm(sheet) {
     disputeReasonDisplay.style.background = "#f8fafc";
     disputeReasonDisplay.style.margin = "6px 0 10px 0";
     disputeReasonDisplay.style.whiteSpace = "pre-wrap";
+    disputeReasonDisplay.style.background = "#f3f4f6";
+disputeReasonDisplay.style.color = "#111";
+disputeReasonDisplay.style.fontSize = "14px";
+disputeReasonDisplay.style.lineHeight = "1.5";
 
     // Amount input (editable)
     const amountLabel = document.createElement("label");
     amountLabel.setAttribute("for", "disputeAmountInput");
-    amountLabel.textContent = "Backcharge Amount (editable)";
+    amountLabel.textContent = "Backcharge Amount";
 
     disputeAmountInput = document.createElement("input");
     disputeAmountInput.id = "disputeAmountInput";
@@ -644,7 +656,7 @@ function ensureDisputeForm(sheet) {
     });
 
     disputeFormContainer.appendChild(subLabel);
-    disputeFormContainer.appendChild(disputeSubSelect);
+    disputeFormContainer.appendChild(disputeSubDisplay);
     disputeFormContainer.appendChild(existingReasonLabel);
     disputeFormContainer.appendChild(disputeReasonDisplay);
     disputeFormContainer.appendChild(amountLabel);
@@ -652,51 +664,6 @@ function ensureDisputeForm(sheet) {
 
     sheet.appendChild(disputeFormContainer);
   }
-}
-
-// Build subcontractor options filtered by the record's Vanir Branch
-function populateSubcontractorOptionsForRecord(record){
-  const recordBranchNames = (record.fields["Vanir Branch"] || [])
-    .map(id => getCachedRecord(BRANCH_TABLE, id));
-
-  const subs = (tableRecords[SUBCONTRACTOR_TABLE] || []);
-  const options = [];
-
-  function getSubBranchNames(sub){
-    const ids = sub.fields["Vanir Branch"] || [];
-    return Array.isArray(ids) ? ids.map(id => getCachedRecord(BRANCH_TABLE, id)) : [];
-  }
-
-  subs.forEach(sub => {
-    const name = sub.fields["Subcontractor Company Name"];
-    if (!name) return;
-
-    const subBranchNames = getSubBranchNames(sub);
-    const intersects = recordBranchNames.length === 0
-      ? true
-      : subBranchNames.some(b => recordBranchNames.includes(b));
-
-    if (intersects) {
-      options.push({ id: sub.id, name });
-    }
-  });
-
-  if (options.length === 0) {
-    subs.forEach(sub => {
-      const name = sub.fields["Subcontractor Company Name"];
-      if (name) options.push({ id: sub.id, name });
-    });
-  }
-
-  options.sort((a,b)=> a.name.localeCompare(b.name));
-
-  disputeSubSelect.innerHTML = `<option value="">-- Select subcontractor --</option>`;
-  options.forEach(o => {
-    const opt = document.createElement("option");
-    opt.value = o.id;
-    opt.textContent = o.name;
-    disputeSubSelect.appendChild(opt);
-  });
 }
 
 /* =========================
@@ -726,8 +693,11 @@ function openDecisionSheet(recordId, jobName, decision) {
   disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
 
   if (decision === "Dispute") {
-    populateSubcontractorOptionsForRecord(rec);
     disputeFormContainer.style.display = "block";
+
+    // Prefill read-only subcontractor(s)
+    const subNames = normalizeNames(rec?.fields?.["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE).join(", ");
+    disputeSubDisplay.textContent = subNames || "(None)";
 
     // Prefill read-only original reason and editable amount from the record
     const originalReason = rec?.fields?.["Issue"] || "";
@@ -739,13 +709,11 @@ function openDecisionSheet(recordId, jobName, decision) {
     } else {
       disputeAmountInput.value = formatUSD(originalAmount);
     }
-
-    disputeSubSelect.value = "";
   } else {
     disputeFormContainer.style.display = "none";
+    disputeSubDisplay.textContent = "";
     disputeReasonDisplay.textContent = "";
     disputeAmountInput.value = "";
-    disputeSubSelect.value = "";
   }
 
   approveBtn.classList.toggle("attn", decision === "Approve");
@@ -780,9 +748,9 @@ function closeDecisionSheet(){
 
   if (disputeFormContainer) {
     disputeFormContainer.style.display = "none";
+    if (disputeSubDisplay) disputeSubDisplay.textContent = "";
     if (disputeReasonDisplay) disputeReasonDisplay.textContent = "";
     if (disputeAmountInput) disputeAmountInput.value = "";
-    if (disputeSubSelect) disputeSubSelect.value = "";
   }
 
   pendingDecision = null;
@@ -803,15 +771,6 @@ async function confirmDecision(decision) {
   const fieldsToPatch = { "Approve or Dispute": decision };
 
   if (decision === "Dispute") {
-    // Require subcontractor selection
-    const selectedSubId = disputeSubSelect?.value?.trim();
-    if (!selectedSubId) {
-      alert("Please select the subcontractor to backcharge.");
-      disputeSubSelect.focus();
-      return;
-    }
-    fieldsToPatch["Subcontractor to Backcharge"] = [selectedSubId];
-
     // Amount (required; editable)
     const amountRaw = disputeAmountInput?.value.trim();
     if (!amountRaw) {
@@ -827,8 +786,8 @@ async function confirmDecision(decision) {
     }
     fieldsToPatch["Backcharge Amount"] = parsed;
 
-    // NOTE: we intentionally do NOT allow editing the original reason here.
-    // We just display it read-only (from the record's "Issue" field).
+    // NOTE: Subcontractor to Backcharge is displayed read-only and is NOT changed here.
+    // NOTE: We also keep the original Issue (reason) read-only and unchanged here.
   }
 
   showLoading();
