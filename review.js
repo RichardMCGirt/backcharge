@@ -808,23 +808,26 @@ function ensureBackchargeFormStyles() {
   const style = document.createElement("style");
   style.id = "bf-styles";
   style.textContent = `
-    /* Base layout */
-    #disputeFormContainer { width: 100%; padding: 4px 0; }
+    /* Container */
+    #disputeFormContainer { width: 100%; padding: 6px 0; }
+
+    /* Mobile-first grid: flexible amount column */
     #disputeFormContainer .bf-grid {
       display: grid;
       width: 100%;
-      grid-template-columns: minmax(0, 1fr) 220px; /* who-to-backcharge | amount */
-      gap: 10px 14px;
+      grid-template-columns: minmax(0, 1fr) minmax(120px, 42%); /* who | amount */
+      gap: 12px 12px;
       align-items: start;
       box-sizing: border-box;
     }
 
-    /* Neutral defaults */
+    /* Base (neutral) styles */
     #disputeFormContainer label {
       font-weight: 600;
       align-self: center;
       font-size: 14px;
-      color: #0f172a; /* dark by default */
+      line-height: 1.2;
+      color: #0f172a;
     }
     #disputeFormContainer .bf-amount-label {
       text-align: right;
@@ -832,26 +835,27 @@ function ensureBackchargeFormStyles() {
       padding-right: 4px;
     }
     #disputeFormContainer .bf-display {
-      border: 1px solid #e1e4e8;
-      border-radius: 8px;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
       background: #f3f4f6;
-      padding: 10px;
-      min-height: 40px;
-      line-height: 1.4;
+      padding: 12px;
+      min-height: 44px; /* finger-friendly */
+      line-height: 1.35;
       word-break: break-word;
       white-space: pre-wrap;
       box-sizing: border-box;
-      color: #111; /* readable dark text by default */
+      color: #111;
     }
     #disputeFormContainer input[type="text"] {
-      height: 40px;
-      border: 1px solid #e1e4e8;
-      border-radius: 8px;
-      padding: 8px 10px;
-      width: 100%;
+      height: 44px;            /* no iOS zoom */
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px 12px;
+      width: 100%;             /* fill the amount column */
       box-sizing: border-box;
       background: #fff;
-      color: #111; /* amounts are black */
+      color: #111;             /* amounts black */
+      font-size: 16px;         /* avoid iOS zoom */
     }
     #disputeFormContainer input::placeholder { color: #6b7280; }
 
@@ -859,29 +863,35 @@ function ensureBackchargeFormStyles() {
     #disputeFormContainer .bf-reason label { grid-column: 1 / -1; }
     #disputeFormContainer .bf-reason .bf-display { grid-column: 1 / -1; }
 
-    /* --- DISPUTE MODE OVERRIDES --- */
-    /* Labels white */
+    /* --- Dispute mode: labels + read-only values white, inputs remain black --- */
     #decisionSheet.dispute-mode #disputeFormContainer label,
     #decisionSheet.dispute-mode #disputeFormContainer .bf-amount-label {
       color: #fff !important;
     }
-    /* Read-only "who to backcharge" values white */
     #decisionSheet.dispute-mode #disputeFormContainer .bf-display {
       color: #fff !important;
-      background: transparent;               /* blends with dark sheet bg */
-      border-color: rgba(255,255,255,0.35);  /* subtle light border */
+      background: transparent;
+      border-color: rgba(255, 255, 255, 0.35);
     }
-    /* Amount inputs stay black for readability */
     #decisionSheet.dispute-mode #disputeFormContainer input[type="text"] {
       color: #111 !important;
       background: #fff !important;
-      border-color: #e1e4e8 !important;
+      border-color: #e5e7eb !important;
     }
     #decisionSheet.dispute-mode #disputeFormContainer input::placeholder {
       color: #6b7280 !important;
     }
 
-    @media (min-width: 560px) {
+    /* Extra small screens: let amount column take up to 50% */
+    @media (max-width: 360px) {
+      #disputeFormContainer .bf-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(110px, 50%);
+        gap: 10px 10px;
+      }
+    }
+
+    /* Larger screens: fixed amount column */
+    @media (min-width: 640px) {
       #disputeFormContainer .bf-grid {
         grid-template-columns: minmax(0, 1fr) 260px;
       }
@@ -889,6 +899,7 @@ function ensureBackchargeFormStyles() {
   `;
   document.head.appendChild(style);
 }
+
 
 
 
