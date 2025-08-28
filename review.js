@@ -702,6 +702,8 @@ function openDecisionSheet(recordId, jobName, decision) {
   const backdrop = document.getElementById("sheetBackdrop");
 
   ensureDisputeForm(sheet);
+  sheet.classList.toggle("dispute-mode", decision === "Dispute"); // <— add this line
+
 
   title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
   msg.innerHTML = `Are you sure you want to mark <strong>${escapeHtml(jobName || "Unknown Job")}</strong> as "<strong>${escapeHtml(decision)}</strong>"?`;
@@ -806,7 +808,7 @@ function ensureBackchargeFormStyles() {
   const style = document.createElement("style");
   style.id = "bf-styles";
   style.textContent = `
-    /* Make the container and grid span full width */
+    /* Base layout */
     #disputeFormContainer { width: 100%; padding: 4px 0; }
     #disputeFormContainer .bf-grid {
       display: grid;
@@ -817,29 +819,18 @@ function ensureBackchargeFormStyles() {
       box-sizing: border-box;
     }
 
-    /* Force readable (dark) text inside the sheet, even if a parent sets color: white */
-    #disputeFormContainer,
-* {
-  color: #fff !important;
-}
- #disputeFormContainer *{
-  color: #111 !important;
- }
-
+    /* Neutral defaults */
     #disputeFormContainer label {
       font-weight: 600;
       align-self: center;
       font-size: 14px;
-        color: #fff !important;
-
+      color: #0f172a; /* dark by default */
     }
-
     #disputeFormContainer .bf-amount-label {
       text-align: right;
       align-self: center;
       padding-right: 4px;
     }
-
     #disputeFormContainer .bf-display {
       border: 1px solid #e1e4e8;
       border-radius: 8px;
@@ -850,10 +841,8 @@ function ensureBackchargeFormStyles() {
       word-break: break-word;
       white-space: pre-wrap;
       box-sizing: border-box;
-  color: #111 !important;
-
+      color: #111; /* readable dark text by default */
     }
-
     #disputeFormContainer input[type="text"] {
       height: 40px;
       border: 1px solid #e1e4e8;
@@ -862,18 +851,36 @@ function ensureBackchargeFormStyles() {
       width: 100%;
       box-sizing: border-box;
       background: #fff;
+      color: #111; /* amounts are black */
     }
-    #disputeFormContainer input::placeholder { color: #6b7280; } /* subtle gray */
+    #disputeFormContainer input::placeholder { color: #6b7280; }
 
     /* Reason spans full width */
-    #disputeFormContainer .bf-reason label {
-      grid-column: 1 / -1;
+    #disputeFormContainer .bf-reason label { grid-column: 1 / -1; }
+    #disputeFormContainer .bf-reason .bf-display { grid-column: 1 / -1; }
+
+    /* --- DISPUTE MODE OVERRIDES --- */
+    /* Labels white */
+    #decisionSheet.dispute-mode #disputeFormContainer label,
+    #decisionSheet.dispute-mode #disputeFormContainer .bf-amount-label {
+      color: #fff !important;
     }
-    #disputeFormContainer .bf-reason .bf-display {
-      grid-column: 1 / -1;
+    /* Read-only "who to backcharge" values white */
+    #decisionSheet.dispute-mode #disputeFormContainer .bf-display {
+      color: #fff !important;
+      background: transparent;               /* blends with dark sheet bg */
+      border-color: rgba(255,255,255,0.35);  /* subtle light border */
+    }
+    /* Amount inputs stay black for readability */
+    #decisionSheet.dispute-mode #disputeFormContainer input[type="text"] {
+      color: #111 !important;
+      background: #fff !important;
+      border-color: #e1e4e8 !important;
+    }
+    #decisionSheet.dispute-mode #disputeFormContainer input::placeholder {
+      color: #6b7280 !important;
     }
 
-    /* Optional: make amount column a bit wider on larger screens */
     @media (min-width: 560px) {
       #disputeFormContainer .bf-grid {
         grid-template-columns: minmax(0, 1fr) 260px;
@@ -882,6 +889,8 @@ function ensureBackchargeFormStyles() {
   `;
   document.head.appendChild(style);
 }
+
+
 
 
 /* =========================
@@ -985,6 +994,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   const backdrop = document.getElementById("sheetBackdrop");
 
   ensureDisputeForm(sheet);
+sheet.classList.toggle("dispute-mode", decision === "Dispute");
 
   title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
   msg.innerHTML = `Are you sure you want to mark <strong>${escapeHtml(jobName || "Unknown Job")}</strong> as "<strong>${escapeHtml(decision)}</strong>"?`;
@@ -1086,7 +1096,9 @@ function closeDecisionSheet(){
   const disputeBtn = document.getElementById("confirmDisputeBtn");
 
   sheet.classList.remove("open");
+  sheet.classList.remove("dispute-mode"); // ← add this
   if (backdrop) backdrop.classList.remove("show");
+
 
   approveBtn.classList.remove("attn");
   disputeBtn.classList.remove("attn");
