@@ -487,7 +487,7 @@ function renderReviews() {
         ${secondarySubcontractor ? `<span class="chip">Secondary subcontractor: ${escapeHtml(secondarySubcontractor)}</span>` : ""}
         ${secondaryAmount ? `<span class="chip">Secondary sub amount: ${escapeHtml(secondaryAmount)}</span>` : ""}
         ${vendorLinksHtml || ""}
-        ${vendorAmount ? `<span class="chip">Vendor amount: ${escapeHtml(vendorAmount)}</span>` : ""}
+        ${vendorAmount ? `<span class="chip">Vendor Backcharge amount: ${escapeHtml(vendorAmount)}</span>` : ""}
       </div>
      ${
   reason || photoCount > 0
@@ -1158,7 +1158,7 @@ async function confirmDecision(decision) {
     if (vendorAmountRaw) {
       const vParsed = parseCurrencyInput(vendorAmountRaw);
       if (vParsed == null || isNaN(vParsed) || vParsed < 0) {
-        alert("Please enter a valid positive Vendor Amount (e.g., 900.00), or clear it.");
+        alert("Please enter a valid positive dollar amount for vendor backcharge (e.g., 900.00), or clear it.");
         disputeVendorAmountInput.focus();
         return;
       }
