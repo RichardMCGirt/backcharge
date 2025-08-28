@@ -806,50 +806,79 @@ function ensureBackchargeFormStyles() {
   const style = document.createElement("style");
   style.id = "bf-styles";
   style.textContent = `
+    /* Make the container and grid span full width */
+    #disputeFormContainer { width: 100%; padding: 4px 0; }
     #disputeFormContainer .bf-grid {
       display: grid;
-      grid-template-columns: 1fr 220px; /* left: who-to-backcharge, right: amount input */
+      width: 100%;
+      grid-template-columns: minmax(0, 1fr) 220px; /* who-to-backcharge | amount */
       gap: 10px 14px;
       align-items: start;
+      box-sizing: border-box;
     }
-    #disputeFormContainer .bf-row { display: contents; } /* allow labels/fields to occupy grid cells */
+
+    /* Force readable (dark) text inside the sheet, even if a parent sets color: white */
+    #disputeFormContainer,
+#disputeFormContainer * {
+  color: #fff !important;
+}
+
+
     #disputeFormContainer label {
       font-weight: 600;
       align-self: center;
-      color: #0f172a; /* slate-900 */
       font-size: 14px;
     }
-    #disputeFormContainer .bf-display {
-      border: 1px solid #e1e4e8;
-      border-radius: 8px;
-      background: #f3f4f6;
-      color: #111;
-      padding: 10px;
-      min-height: 40px;
-      line-height: 1.4;
-    }
-    #disputeFormContainer input[type="text"] {
-      height: 40px;
-      border: 1px solid #e1e4e8;
-      border-radius: 8px;
-      padding: 8px 10px;
-      box-sizing: border-box;
-      width: 100%;
-    }
+
     #disputeFormContainer .bf-amount-label {
       text-align: right;
       align-self: center;
       padding-right: 4px;
     }
+
+    #disputeFormContainer .bf-display {
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      background: #f3f4f6;
+      padding: 10px;
+      min-height: 40px;
+      line-height: 1.4;
+      word-break: break-word;
+      white-space: pre-wrap;
+      box-sizing: border-box;
+  color: #111 !important;
+
+    }
+
+    #disputeFormContainer input[type="text"] {
+      height: 40px;
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      padding: 8px 10px;
+      width: 100%;
+      box-sizing: border-box;
+      background: #fff;
+    }
+    #disputeFormContainer input::placeholder { color: #6b7280; } /* subtle gray */
+
+    /* Reason spans full width */
     #disputeFormContainer .bf-reason label {
       grid-column: 1 / -1;
     }
     #disputeFormContainer .bf-reason .bf-display {
       grid-column: 1 / -1;
     }
+
+    /* Optional: make amount column a bit wider on larger screens */
+    @media (min-width: 560px) {
+      #disputeFormContainer .bf-grid {
+        grid-template-columns: minmax(0, 1fr) 260px;
+      }
+    }
   `;
   document.head.appendChild(style);
 }
+
 
 /* =========================
    DISPUTE FORM (grid-aligned: who-to-backcharge | amount)
