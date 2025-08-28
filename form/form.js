@@ -3,6 +3,8 @@
    - ES5-safe (no optional chaining / nullish coalescing / arrows)
    - Branch-name ↔ linked-ID filtering preserved
    - Uploads selected files to Dropbox and patches Airtable "Photos" with direct links
+   - UPDATED: "Tech name" is now a plain text field, not a linked-record array
+   - UPDATED: Backcharge Amount is a currency input (pretty UI; numeric sent to Airtable)
    ============================= */
 
 import { fetchDropboxToken, uploadFileToDropbox } from "../dropbox.js";
@@ -29,6 +31,57 @@ var excludedBranches = ["Test Branch", "Airtable Hail Mary Test", "AT HM Test"];
 /* ---------- Small DOM helpers ---------- */
 function q(sel){ return document.querySelector(sel); }
 function val(sel){ var el = q(sel); return el ? el.value : ""; }
+
+/* ---------- Currency helpers (format visually, store numeric) ---------- */
+function formatUSD(n) {
+  try {
+    // Use Intl for display only
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
+  } catch (e) {
+    // Fallback minimal formatting
+    var fixed = (isNaN(n) || n === "" || n == null) ? "0.00" : Number(n).toFixed(2);
+    return "$" + fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+}
+
+function parseCurrencyInput(str) {
+  // Keep digits, decimal, and minus; then parse
+  if (str == null) return null;
+  var cleaned = String(str).replace(/[^0-9.\-]/g, "");
+  if (cleaned === "" || cleaned === "." || cleaned === "-" || cleaned === "-.") return null;
+  var n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
+
+function attachCurrencyBehaviors(inputEl) {
+  if (!inputEl) return;
+
+  // Show formatted on blur
+  inputEl.addEventListener("blur", function(){
+    var n = parseCurrencyInput(inputEl.value);
+    inputEl.value = (n == null) ? "" : formatUSD(n);
+  });
+
+  // Show raw number while editing
+  inputEl.addEventListener("focus", function(){
+    var n = parseCurrencyInput(inputEl.value);
+    inputEl.value = (n == null) ? "" : String(n);
+    // Move caret to end (best-effort)
+    try {
+      var len = inputEl.value.length;
+      inputEl.setSelectionRange(len, len);
+    } catch (_e) {}
+  });
+
+  // Keep it friendly during typing (optional: just let user type; strict filtering can be annoying)
+  inputEl.addEventListener("input", function(){
+    // No-op; we parse on submit. You can add live validation UI here if desired.
+  });
+
+  // Initial pretty format if there is a prefilled value
+  var initial = parseCurrencyInput(inputEl.value);
+  if (initial != null) inputEl.value = formatUSD(initial);
+}
 
 /* ---------- Utils ---------- */
 function atHeaders() {
@@ -257,6 +310,9 @@ async function uploadPhotosAndGetAttachments() {
 /* ---------- Submit handler ---------- */
 var formEl = document.getElementById("backchargeForm");
 if (formEl) {
+  // Attach currency behaviors when the form exists
+  attachCurrencyBehaviors(document.getElementById("amount"));
+
   formEl.addEventListener("submit", async function(e){
     e.preventDefault();
 
@@ -277,27 +333,25 @@ if (formEl) {
     }
 
     var customerClean   = customer;
-    var technicianClean = technician;
+    var technicianClean = technician; // now plain text
     var branchClean     = branch;
 
+    // Currency: parse UI string to number (or null)
     var amountInput = q("#amount");
-    var amountRaw = amountInput ? amountInput.value : "";
-    var amount = (amountRaw === "" || amountRaw == null) ? null : parseFloat(amountRaw);
+    var amountParsed = amountInput ? parseCurrencyInput(amountInput.value) : null;
 
-    // Resolve linked record IDs in parallel (3 lookups, 3 vars)
+    // Resolve linked record IDs in parallel (Customer + Branch only)
     var ids = await Promise.all([
       findRecordId(CUSTOMER_TABLE, "Client Name", customerClean),
-      findRecordId(TECH_TABLE,     "Full Name",   technicianClean),
+      /* technician no longer looked up */
       findRecordId(BRANCH_TABLE,   "Office Name", branchClean)
     ]);
 
     var custId   = ids[0];
-    var techId   = ids[1];
-    var branchId = ids[2];
+    var branchId = ids[1];
 
     var missing = [];
     if (!custId)   missing.push('Customer: "' + (customerClean || "(empty)") + '"');
-    if (!techId)   missing.push('Technician: "' + (technicianClean || "(empty)") + '"');
     if (!branchId) missing.push('Branch: "' + (branchClean || "(empty)") + '"');
 
     if (missing.length) {
@@ -320,18 +374,21 @@ if (formEl) {
     }
 
     var fields = {
-      "Customer":         [custId],
-      "Field Technician": [techId],
-      "Vanir Branch":     [branchId],
-      "Job Name":         (jobName && jobName.trim()) ? jobName.trim() : undefined,
-      "Issue":            (reason && reason.trim()) ? reason.trim() : undefined
+      "Customer":     [custId],
+      // "Tech name" is a plain text field
+      "Tech name":    (technicianClean && technicianClean.trim()) ? technicianClean.trim() : undefined,
+      "Vanir Branch": [branchId],
+      "Job Name":     (jobName && jobName.trim()) ? jobName.trim() : undefined,
+      "Issue":        (reason && reason.trim()) ? reason.trim() : undefined
     };
 
-    if (amount !== null && !Number.isNaN(amount)) {
-      fields["Backcharge Amount"] = amount;
+    // Only include Backcharge Amount if user provided a number
+    if (amountParsed !== null) {
+      fields["Backcharge Amount"] = amountParsed; // Airtable number field
     }
+
     if (photoAttachments.length) {
-      fields["Photos"] = photoAttachments; // <-- Attachment field expects [{ url, filename }]
+      fields["Photos"] = photoAttachments; // Attachment field expects [{ url, filename }]
     }
 
     var payload = { fields: fields };
@@ -362,6 +419,9 @@ if (formEl) {
       // Optional: clear file input value explicitly
       var fileEl = document.getElementById("photos");
       if (fileEl) { try { fileEl.value = ""; } catch (e3) {} }
+
+      // Reformat currency after reset (since reset clears the field)
+      attachCurrencyBehaviors(document.getElementById("amount"));
 
       // Rebuild dropdowns after reset (optional; keeps lists fresh)
       var branchNameAfter = val("#branch");

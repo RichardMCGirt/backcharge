@@ -42,7 +42,6 @@ export async function fetchDropboxToken() {
     }
 }
 
-
 export async function refreshDropboxAccessToken(refreshToken, appKey, appSecret) {
     const url = "https://api.dropboxapi.com/oauth2/token";
 

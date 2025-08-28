@@ -923,10 +923,8 @@ function updateTechDropdown(skipClear = false) {
   }
 }
 
-
 function restoreFilters() {
-  // We now prefer URL params over storage, but this function is called by updateTechDropdown(true)
-  // Delegate to the new URL-aware applier (it will fallback to storage if URL empty)
+
   applyFiltersFromURLOrStorage();
 }
 
