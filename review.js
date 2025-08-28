@@ -819,15 +819,19 @@ function ensureBackchargeFormStyles() {
 
     /* Force readable (dark) text inside the sheet, even if a parent sets color: white */
     #disputeFormContainer,
-#disputeFormContainer * {
+* {
   color: #fff !important;
 }
-
+ #disputeFormContainer *{
+  color: #111 !important;
+ }
 
     #disputeFormContainer label {
       font-weight: 600;
       align-self: center;
       font-size: 14px;
+        color: #fff !important;
+
     }
 
     #disputeFormContainer .bf-amount-label {
@@ -901,7 +905,7 @@ function ensureDisputeForm(sheet) {
       <div class="bf-grid">
 
         <!-- Row: Subcontractor -->
-        <label for="disputeSubDisplay">Subcontractor to backcharge</label>
+        <label for="disputeSubDisplay">Primary Subcontractor to backcharge</label>
         <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
 
         <div id="disputeSubDisplay" class="bf-display" aria-live="polite"></div>
