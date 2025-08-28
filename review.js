@@ -686,192 +686,256 @@ function openPhotoModal(photos) {
 /* =========================
    DISPUTE FORM (read-only subcontractor + read-only reason + editable amounts)
 ========================= */
+function openDecisionSheet(recordId, jobName, decision) {
+  pendingRecordId = recordId;
+  pendingRecordName = jobName;
+  pendingDecision = decision;
+
+  const rec = getRecordById(recordId);
+  pendingRecordIdNumber = rec?.fields?.["ID Number"] ?? null;
+
+  const sheet = document.getElementById("decisionSheet");
+  const title = document.getElementById("decisionTitle");
+  const msg = document.getElementById("decisionMessage");
+  const approveBtn = document.getElementById("confirmApproveBtn");
+  const disputeBtn = document.getElementById("confirmDisputeBtn");
+  const backdrop = document.getElementById("sheetBackdrop");
+
+  ensureDisputeForm(sheet);
+
+  title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
+  msg.innerHTML = `Are you sure you want to mark <strong>${escapeHtml(jobName || "Unknown Job")}</strong> as "<strong>${escapeHtml(decision)}</strong>"?`;
+
+  approveBtn.style.display = decision === "Approve" ? "block" : "none";
+  disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
+
+  if (decision === "Dispute") {
+    disputeFormContainer.style.display = "block";
+
+    // Prefill read-only subcontractor(s)
+    const subNames = normalizeNames(rec?.fields?.["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE).join(", ");
+    disputeSubDisplay.textContent = subNames || "(None)";
+
+    // NEW: Prefill read-only secondary subcontractor(s) with capitalization variants
+    const secSubField = pickFieldName(rec?.fields || {}, [
+      "Secondary Subcontractor to backcharge",
+      "Secondary Subcontractor to Backcharge",
+      "Secondary Subcontractor"
+    ]);
+    const sub2Names = normalizeNames(rec?.fields?.[secSubField] || [], SUBCONTRACTOR_TABLE).join(", ");
+    disputeSub2Display.textContent = sub2Names || "(None)";
+
+    // NEW: Prefill read-only vendor(s)
+    const vendorNames = getLinkedRecords(VENDOR_TABLE, rec?.fields?.["Vendor to backcharge"] || [])
+      .map(v => v.name)
+      .join(", ");
+    disputeVendorDisplay.textContent = vendorNames || "(None)";
+
+    // Prefill read-only original reason and editable amount(s) from the record
+    const originalReason = rec?.fields?.["Issue"] || "";
+    const originalAmount = rec?.fields?.["Backcharge Amount"];
+    const originalVendorAmount = rec?.fields?.["Amount to backcharge vendor"];
+
+    // NEW: Secondary amount (handle capitalization variants)
+    const secAmtField = pickFieldName(rec?.fields || {}, [
+      "Amount to backcharge secondary sub",
+      "Amount to Backcharge Secondary Sub",
+      "Secondary Backcharge Amount"
+    ]);
+    const originalSecondaryAmount = rec?.fields?.[secAmtField];
+
+    disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
+
+    // Subcontractor amount
+    if (originalAmount == null || originalAmount === "") {
+      disputeAmountInput.value = "";
+    } else {
+      disputeAmountInput.value = formatUSD(originalAmount);
+    }
+
+    // Secondary sub amount
+    if (originalSecondaryAmount == null || originalSecondaryAmount === "") {
+      disputeAmount2Input.value = "";
+    } else {
+      disputeAmount2Input.value = formatUSD(originalSecondaryAmount);
+    }
+
+    // Vendor amount
+    if (originalVendorAmount == null || originalVendorAmount === "") {
+      disputeVendorAmountInput.value = "";
+    } else {
+      disputeVendorAmountInput.value = formatUSD(originalVendorAmount);
+    }
+
+  } else {
+    disputeFormContainer.style.display = "none";
+    disputeSubDisplay.textContent = "";
+    disputeSub2Display.textContent = "";     // NEW
+    disputeVendorDisplay.textContent = "";   // NEW
+    disputeReasonDisplay.textContent = "";
+    disputeAmountInput.value = "";
+    disputeAmount2Input.value = "";          // NEW
+    disputeVendorAmountInput.value = "";     // NEW
+  }
+
+  approveBtn.classList.toggle("attn", decision === "Approve");
+  disputeBtn.classList.toggle("attn", decision === "Dispute");
+
+  approveBtn.textContent = "✔ Approve";
+  disputeBtn.textContent = "✖ Dispute";
+
+  sheet.classList.add("open");
+  if (backdrop) backdrop.classList.add("show");
+
+  sheet.setAttribute("role", "dialog");
+  sheet.setAttribute("aria-modal", "true");
+  sheet.setAttribute("aria-labelledby", "decisionTitle");
+  sheet.setAttribute("aria-describedby", "decisionMessage");
+  sheet.focus();
+
+  document.addEventListener("keydown", onSheetEsc);
+}
+
+
+/* =========================
+   BOTTOM SHEET CONFIRM
+========================= */
+// Inject minimal styles once for the dispute sheet grid layout
+function ensureBackchargeFormStyles() {
+  if (document.getElementById("bf-styles")) return;
+  const style = document.createElement("style");
+  style.id = "bf-styles";
+  style.textContent = `
+    #disputeFormContainer .bf-grid {
+      display: grid;
+      grid-template-columns: 1fr 220px; /* left: who-to-backcharge, right: amount input */
+      gap: 10px 14px;
+      align-items: start;
+    }
+    #disputeFormContainer .bf-row { display: contents; } /* allow labels/fields to occupy grid cells */
+    #disputeFormContainer label {
+      font-weight: 600;
+      align-self: center;
+      color: #0f172a; /* slate-900 */
+      font-size: 14px;
+    }
+    #disputeFormContainer .bf-display {
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      background: #f3f4f6;
+      color: #111;
+      padding: 10px;
+      min-height: 40px;
+      line-height: 1.4;
+    }
+    #disputeFormContainer input[type="text"] {
+      height: 40px;
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      padding: 8px 10px;
+      box-sizing: border-box;
+      width: 100%;
+    }
+    #disputeFormContainer .bf-amount-label {
+      text-align: right;
+      align-self: center;
+      padding-right: 4px;
+    }
+    #disputeFormContainer .bf-reason label {
+      grid-column: 1 / -1;
+    }
+    #disputeFormContainer .bf-reason .bf-display {
+      grid-column: 1 / -1;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/* =========================
+   DISPUTE FORM (grid-aligned: who-to-backcharge | amount)
+========================= */
 function ensureDisputeForm(sheet) {
   if (!disputeFormContainer) {
+    ensureBackchargeFormStyles();
+
     disputeFormContainer = document.createElement("div");
     disputeFormContainer.id = "disputeFormContainer";
     disputeFormContainer.style.marginTop = "12px";
     disputeFormContainer.style.display = "none";
 
-    // Subcontractor (read-only)
-    const subLabel = document.createElement("label");
-    subLabel.textContent = "Primary Subcontractor to backcharge";
+    // Build grid with aligned rows:
+    // Row 1: Subcontractor | Amount (sub)
+    // Row 2: Secondary Subcontractor | Amount (secondary)
+    // Row 3: Vendor | Amount (vendor)
+    // Row 4: Reason (full width)
+    disputeFormContainer.innerHTML = `
+      <div class="bf-grid">
 
-    disputeSubDisplay = document.createElement("div");
-    disputeSubDisplay.id = "disputeSubDisplay";
-    disputeSubDisplay.style.width = "100%";
-    disputeSubDisplay.style.boxSizing = "border-box";
-    disputeSubDisplay.style.padding = "10px";
-    disputeSubDisplay.style.border = "1px solid #e1e4e8";
-    disputeSubDisplay.style.borderRadius = "8px";
-    disputeSubDisplay.style.background = "#f8fafc";
-    disputeSubDisplay.style.margin = "6px 0 10px 0";
-    disputeSubDisplay.style.whiteSpace = "pre-wrap";
-    disputeSubDisplay.style.background = "#f3f4f6";   // light gray
-    disputeSubDisplay.style.color = "#111";           // dark text
-    disputeSubDisplay.style.fontSize = "14px";
-    disputeSubDisplay.style.lineHeight = "1.5";
+        <!-- Row: Subcontractor -->
+        <label for="disputeSubDisplay">Subcontractor to backcharge</label>
+        <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
 
-    // NEW: Secondary Subcontractor (read-only)
-    const sub2Label = document.createElement("label");
-    sub2Label.textContent = "Secondary Subcontractor to backcharge";
+        <div id="disputeSubDisplay" class="bf-display" aria-live="polite"></div>
+        <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
 
-    disputeSub2Display = document.createElement("div");
-    disputeSub2Display.id = "disputeSub2Display";
-    disputeSub2Display.style.width = "100%";
-    disputeSub2Display.style.boxSizing = "border-box";
-    disputeSub2Display.style.padding = "10px";
-    disputeSub2Display.style.border = "1px solid #e1e4e8";
-    disputeSub2Display.style.borderRadius = "8px";
-    disputeSub2Display.style.background = "#f3f4f6";
-    disputeSub2Display.style.margin = "6px 0 10px 0";
-    disputeSub2Display.style.whiteSpace = "pre-wrap";
-    disputeSub2Display.style.color = "#111";
-    disputeSub2Display.style.fontSize = "14px";
-    disputeSub2Display.style.lineHeight = "1.5";
+        <!-- Row: Secondary Subcontractor -->
+        <label for="disputeSub2Display">Secondary Subcontractor to backcharge</label>
+        <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
 
-    // NEW: Vendor (read-only display)
-    const vendorLabel = document.createElement("label");
-    vendorLabel.textContent = "Vendor to backcharge";
+        <div id="disputeSub2Display" class="bf-display" aria-live="polite"></div>
+        <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="$0.00" />
 
-    disputeVendorDisplay = document.createElement("div");
-    disputeVendorDisplay.id = "disputeVendorDisplay";
-    disputeVendorDisplay.style.width = "100%";
-    disputeVendorDisplay.style.boxSizing = "border-box";
-    disputeVendorDisplay.style.padding = "10px";
-    disputeVendorDisplay.style.border = "1px solid #e1e4e8";
-    disputeVendorDisplay.style.borderRadius = "8px";
-    disputeVendorDisplay.style.background = "#f3f4f6";
-    disputeVendorDisplay.style.margin = "6px 0 10px 0";
-    disputeVendorDisplay.style.whiteSpace = "pre-wrap";
-    disputeVendorDisplay.style.color = "#111";
-    disputeVendorDisplay.style.fontSize = "14px";
-    disputeVendorDisplay.style.lineHeight = "1.5";
+        <!-- Row: Vendor -->
+        <label for="disputeVendorDisplay">Vendor to backcharge</label>
+        <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
 
-    // Original Reason (read-only)
-    const existingReasonLabel = document.createElement("label");
-    existingReasonLabel.textContent = "Reason";
+        <div id="disputeVendorDisplay" class="bf-display" aria-live="polite"></div>
+        <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
 
-    disputeReasonDisplay = document.createElement("div");
-    disputeReasonDisplay.id = "disputeReasonDisplay";
-    disputeReasonDisplay.style.width = "100%";
-    disputeReasonDisplay.style.boxSizing = "border-box";
-    disputeReasonDisplay.style.padding = "10px";
-    disputeReasonDisplay.style.border = "1px solid #e1e4e8";
-    disputeReasonDisplay.style.borderRadius = "8px";
-    disputeReasonDisplay.style.background = "#f8fafc";
-    disputeReasonDisplay.style.margin = "6px 0 10px 0";
-    disputeReasonDisplay.style.whiteSpace = "pre-wrap";
-    disputeReasonDisplay.style.background = "#f3f4f6";
-    disputeReasonDisplay.style.color = "#111";
-    disputeReasonDisplay.style.fontSize = "14px";
-    disputeReasonDisplay.style.lineHeight = "1.5";
+        <!-- Row: Reason (full width) -->
+        <div class="bf-reason">
+          <label for="disputeReasonDisplay">Reason</label>
+          <div id="disputeReasonDisplay" class="bf-display" aria-live="polite"></div>
+        </div>
 
-    // Amount input (editable - subcontractor)
-    const amountLabel = document.createElement("label");
-    amountLabel.setAttribute("for", "disputeAmountInput");
-    amountLabel.textContent = "Backcharge Amount (Primary subcontractor)";
+      </div>
+    `;
 
-    disputeAmountInput = document.createElement("input");
-    disputeAmountInput.id = "disputeAmountInput";
-    disputeAmountInput.type = "text";
-    disputeAmountInput.inputMode = "decimal";
-    disputeAmountInput.placeholder = "$0.00";
-    disputeAmountInput.style.width = "100%";
-    disputeAmountInput.style.boxSizing = "border-box";
-    disputeAmountInput.addEventListener("blur", () => {
-      const n = parseCurrencyInput(disputeAmountInput.value);
-      disputeAmountInput.value = (n == null) ? "" : formatUSD(n);
-    });
-    disputeAmountInput.addEventListener("focus", () => {
-      const n = parseCurrencyInput(disputeAmountInput.value);
-      disputeAmountInput.value = (n == null) ? "" : String(n);
-      try {
-        const len = disputeAmountInput.value.length;
-        disputeAmountInput.setSelectionRange(len, len);
-      } catch(e){}
-    });
+    // Wire references back to your globals
+    disputeSubDisplay         = disputeFormContainer.querySelector("#disputeSubDisplay");
+    disputeAmountInput        = disputeFormContainer.querySelector("#disputeAmountInput");
 
-    // NEW: Secondary amount input (editable)
-    const amount2Label = document.createElement("label");
-    amount2Label.setAttribute("for", "disputeAmount2Input");
-    amount2Label.textContent = "Amount to backcharge secondary sub";
+    disputeSub2Display        = disputeFormContainer.querySelector("#disputeSub2Display");
+    disputeAmount2Input       = disputeFormContainer.querySelector("#disputeAmount2Input");
 
-    disputeAmount2Input = document.createElement("input");
-    disputeAmount2Input.id = "disputeAmount2Input";
-    disputeAmount2Input.type = "text";
-    disputeAmount2Input.inputMode = "decimal";
-    disputeAmount2Input.placeholder = "$0.00";
-    disputeAmount2Input.style.width = "100%";
-    disputeAmount2Input.style.boxSizing = "border-box";
-    disputeAmount2Input.addEventListener("blur", () => {
-      const n = parseCurrencyInput(disputeAmount2Input.value);
-      disputeAmount2Input.value = (n == null) ? "" : formatUSD(n);
-    });
-    disputeAmount2Input.addEventListener("focus", () => {
-      const n = parseCurrencyInput(disputeAmount2Input.value);
-      disputeAmount2Input.value = (n == null) ? "" : String(n);
-      try {
-        const len = disputeAmount2Input.value.length;
-        disputeAmount2Input.setSelectionRange(len, len);
-      } catch(e){}
-    });
+    disputeVendorDisplay      = disputeFormContainer.querySelector("#disputeVendorDisplay");
+    disputeVendorAmountInput  = disputeFormContainer.querySelector("#disputeVendorAmountInput");
 
-    // NEW: Vendor amount input (editable)
-    const vendorAmountLabel = document.createElement("label");
-    vendorAmountLabel.setAttribute("for", "disputeVendorAmountInput");
-    vendorAmountLabel.textContent = "Amount to backcharge vendor";
+    disputeReasonDisplay      = disputeFormContainer.querySelector("#disputeReasonDisplay");
 
-    disputeVendorAmountInput = document.createElement("input");
-    disputeVendorAmountInput.id = "disputeVendorAmountInput";
-    disputeVendorAmountInput.type = "text";
-    disputeVendorAmountInput.inputMode = "decimal";
-    disputeVendorAmountInput.placeholder = "$0.00";
-    disputeVendorAmountInput.style.width = "100%";
-    disputeVendorAmountInput.style.boxSizing = "border-box";
-    disputeVendorAmountInput.addEventListener("blur", () => {
-      const n = parseCurrencyInput(disputeVendorAmountInput.value);
-      disputeVendorAmountInput.value = (n == null) ? "" : formatUSD(n);
-    });
-    disputeVendorAmountInput.addEventListener("focus", () => {
-      const n = parseCurrencyInput(disputeVendorAmountInput.value);
-      disputeVendorAmountInput.value = (n == null) ? "" : String(n);
-      try {
-        const len = disputeVendorAmountInput.value.length;
-        disputeVendorAmountInput.setSelectionRange(len, len);
-      } catch(e){}
-    });
-
-    // Assemble the form (order chosen for readability)
-    disputeFormContainer.appendChild(subLabel);
-    disputeFormContainer.appendChild(disputeSubDisplay);
-
-    disputeFormContainer.appendChild(sub2Label);            // NEW
-    disputeFormContainer.appendChild(disputeSub2Display);   // NEW
-
-    disputeFormContainer.appendChild(vendorLabel);
-    disputeFormContainer.appendChild(disputeVendorDisplay);
-
-    disputeFormContainer.appendChild(existingReasonLabel);
-    disputeFormContainer.appendChild(disputeReasonDisplay);
-
-    // Amounts
-    disputeFormContainer.appendChild(amountLabel);
-    disputeFormContainer.appendChild(disputeAmountInput);
-
-    disputeFormContainer.appendChild(amount2Label);         // NEW
-    disputeFormContainer.appendChild(disputeAmount2Input);  // NEW
-
-    disputeFormContainer.appendChild(vendorAmountLabel);
-    disputeFormContainer.appendChild(disputeVendorAmountInput);
+    // Currency formatting UX
+    const hookupMoney = (inp) => {
+      inp.addEventListener("blur", () => {
+        const n = parseCurrencyInput(inp.value);
+        inp.value = (n == null) ? "" : formatUSD(n);
+      });
+      inp.addEventListener("focus", () => {
+        const n = parseCurrencyInput(inp.value);
+        inp.value = (n == null) ? "" : String(n);
+        try {
+          const len = inp.value.length;
+          inp.setSelectionRange(len, len);
+        } catch(e){}
+      });
+    };
+    hookupMoney(disputeAmountInput);
+    hookupMoney(disputeAmount2Input);
+    hookupMoney(disputeVendorAmountInput);
 
     sheet.appendChild(disputeFormContainer);
   }
 }
 
-/* =========================
-   BOTTOM SHEET CONFIRM
-========================= */
 function openDecisionSheet(recordId, jobName, decision) {
   pendingRecordId = recordId;
   pendingRecordName = jobName;
