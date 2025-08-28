@@ -695,7 +695,7 @@ function ensureDisputeForm(sheet) {
 
     // Subcontractor (read-only)
     const subLabel = document.createElement("label");
-    subLabel.textContent = "Subcontractor to backcharge";
+    subLabel.textContent = "Primary Subcontractor to backcharge";
 
     disputeSubDisplay = document.createElement("div");
     disputeSubDisplay.id = "disputeSubDisplay";
@@ -770,7 +770,7 @@ function ensureDisputeForm(sheet) {
     // Amount input (editable - subcontractor)
     const amountLabel = document.createElement("label");
     amountLabel.setAttribute("for", "disputeAmountInput");
-    amountLabel.textContent = "Backcharge Amount (subcontractor)";
+    amountLabel.textContent = "Backcharge Amount (Primary subcontractor)";
 
     disputeAmountInput = document.createElement("input");
     disputeAmountInput.id = "disputeAmountInput";
