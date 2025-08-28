@@ -27,8 +27,8 @@ let lastActiveCardId = null;
 
 // Dispute form elements (created once, reused)
 let disputeFormContainer = null;
-let disputeReasonInput = null;
-let disputeAmountInput = null;
+let disputeReasonDisplay = null;  // <-- read-only original reason
+let disputeAmountInput = null;    // <-- editable amount only
 let disputeSubSelect = null;
 
 /* =========================
@@ -51,6 +51,24 @@ function vibrate(ms=20){ if (navigator.vibrate) try{ navigator.vibrate(ms);}catc
 function getRecordById(id){
   return allRecords.find(r => r.id === id) || null;
 }
+
+// Currency helpers (format visually, parse for numeric patch)
+function formatUSD(n) {
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n);
+  } catch (e) {
+    var fixed = (isNaN(n) || n === "" || n == null) ? "0.00" : Number(n).toFixed(2);
+    return "$" + fixed.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+}
+function parseCurrencyInput(str) {
+  if (str == null) return null;
+  var cleaned = String(str).replace(/[^0-9.\-]/g, "");
+  if (cleaned === "" || cleaned === "." || cleaned === "-" || cleaned === "-.") return null;
+  var n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
+
 // Normalizes field values that might be (a) array of record IDs, (b) array of strings, or (c) a single string.
 // If tableId is provided, any array items that look like record IDs are resolved via getCachedRecord(tableId, id).
 function normalizeNames(fieldVal, tableId = null) {
@@ -58,29 +76,29 @@ function normalizeNames(fieldVal, tableId = null) {
     return fieldVal
       .map(v => {
         if (typeof v === "string") {
-          // If looks like an Airtable record id and we know the table, resolve to display name
           if (tableId && /^rec[A-Za-z0-9]{14}$/.test(v)) {
             return getCachedRecord(tableId, v);
           }
-          return v; // already a display string
+          return v;
         }
         return null;
       })
       .filter(Boolean);
   }
   if (typeof fieldVal === "string") {
-    // Could be a single name or "Name1, Name2"
     return fieldVal.split(",").map(s => s.trim()).filter(Boolean);
   }
   return [];
 }
 
 // Convenience getters for your two key fields
+// UPDATED: Prefer plain text "Tech name"; fallback to legacy "Field Technician"
 function getTechNamesFromRecord(rec) {
+  const techPlain = rec?.fields?.["Tech name"];
+  if (techPlain) return normalizeNames(techPlain, null);
   return normalizeNames(rec?.fields?.["Field Technician"] ?? [], TECH_TABLE);
 }
 function getBranchNamesFromRecord(rec) {
-  // Typically still linked-record IDs; normalize anyway
   return normalizeNames(rec?.fields?.["Vanir Branch"] ?? [], BRANCH_TABLE);
 }
 
@@ -103,7 +121,6 @@ async function fetchAllRecords(tableId, keyFields) {
     offset = data.offset;
   } while (offset);
 
-  // Save full records for later filters
   tableRecords[tableId] = records;
 
   // Build simple display cache: recordId → displayName
@@ -170,7 +187,6 @@ function applyFiltersFromURLOrStorage(){
       localStorage.setItem("branchFilter", branch);
     }
   }
-  // If no URL branch, fallback to storage
   if (!activeBranchFilter) {
     const savedBranch = localStorage.getItem("branchFilter");
     if (savedBranch && branchFilter) {
@@ -187,7 +203,6 @@ function applyFiltersFromURLOrStorage(){
 
   // 2) Tech from URL (preferred)
   if (tech && techFilter) {
-    // If option doesn't exist yet (rare), add it so selection works
     const hasOption = Array.from(techFilter.options).some(o => o.value === tech);
     if (!hasOption) {
       const opt = document.createElement("option");
@@ -201,7 +216,6 @@ function applyFiltersFromURLOrStorage(){
       localStorage.setItem("techFilter", tech);
     }
   }
-  // Fallback to storage
   if (!activeTechFilter) {
     const savedTech = localStorage.getItem("techFilter");
     if (savedTech && techFilter) {
@@ -213,12 +227,10 @@ function applyFiltersFromURLOrStorage(){
   }
   appliedTech = activeTechFilter;
 
-  // 3) Search from URL
   if (q && searchBar) {
     searchBar.value = q;
   }
 
-  // Normalize URL to what actually applied (nice-to-have)
   setURLParams({
     tech: appliedTech || "",
     branch: appliedBranch || "",
@@ -328,7 +340,7 @@ function renderReviews() {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
-    const idNumber = fields["ID Number"]; // <-- autonumber to show
+    const idNumber = fields["ID Number"];
     const branch = getBranchNamesFromRecord(record).join(", ");
     const techNames = getTechNamesFromRecord(record);
     const technician = techNames.join(", ");
@@ -340,7 +352,6 @@ function renderReviews() {
     const idChip = (idNumber !== undefined && idNumber !== null) ? `<span >ID #${idNumber}</span>` : "";
     const branchChip = (branch && branch !== activeBranchFilter) ? `<span class="chip">${branch}</span>` : "";
 
-    // If exactly one tech, make chip a link that deep-links to ?tech=<name>
     let techChip = "";
     if (techNames.length === 1) {
       const tech = techNames[0];
@@ -360,7 +371,7 @@ function renderReviews() {
       <br>
 <p style="
   margin:0 0 8px 0;
-  padding:0 52px;        /* add horizontal breathing room */
+  padding:0 52px;
   display:flex;
   justify-content:space-between;
   align-items:center;
@@ -409,16 +420,15 @@ function renderReviews() {
       });
     }
 
-    // Keep the latest card context for bottom sheet defaults
     card.addEventListener("click", () => { 
       lastActiveCardId = record.id; 
       pendingRecordName = jobName || "Unknown Job"; 
-      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null; // <-- store ID
+      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
     });
     card.addEventListener("focus", () => { 
       lastActiveCardId = record.id; 
       pendingRecordName = jobName || "Unknown Job"; 
-      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null; // <-- store ID
+      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
     });
 
     card.querySelectorAll(".decision-buttons button").forEach(btn => {
@@ -471,12 +481,10 @@ function attachSwipeHandlers(el, onCommit){
     const dx = x - startX;
     const dy = y - startY;
 
-    // Decide if this is really a horizontal gesture
     if (!horizontalLock) {
       if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)*1.2) {
         horizontalLock = true;
       } else if (Math.abs(dy) > Math.abs(dx)) {
-        // vertical → bail out (let the page scroll)
         return;
       }
     }
@@ -484,15 +492,13 @@ function attachSwipeHandlers(el, onCommit){
 
     deltaX = dx;
 
-    // Progress based on container width for consistent feel
     const container = el.parentElement || document.body;
     const w = Math.max(container.clientWidth, 1);
     const progress = Math.min(1, Math.abs(dx) / (w * 0.6));
 
-    // Livelier transform: translate + tiny rotation + subtle scale
-    const rotate = Math.max(-10, Math.min(10, dx * 0.03));   // clamp to ±10deg
-    const scale  = 1 + (progress * 0.02);                    // up to +2% scale
-    const opacity = 1 - (progress * 0.1);                    // fade just a touch
+    const rotate = Math.max(-10, Math.min(10, dx * 0.03));
+    const scale  = 1 + (progress * 0.02);
+    const opacity = 1 - (progress * 0.1);
 
     el.style.transform = `translateX(${dx}px) rotate(${rotate}deg) scale(${scale})`;
     el.style.opacity = String(opacity);
@@ -506,12 +512,11 @@ function attachSwipeHandlers(el, onCommit){
     el.style.transition = "transform .18s ease, opacity .18s ease, box-shadow .18s ease";
     el.classList.remove("swiping-right", "swiping-left");
 
-    const threshold = Math.min((el.parentElement?.clientWidth || window.innerWidth) * 0.28, 160); // px
+    const threshold = Math.min((el.parentElement?.clientWidth || window.innerWidth) * 0.28, 160);
     const commitRight = deltaX > threshold;
     const commitLeft  = deltaX < -threshold;
 
     if (commitRight || commitLeft) {
-      // Slide entirely off-screen (beyond viewport), then collapse
       const direction = commitRight ? 1 : -1;
       const off = (window.innerWidth || 1000) + el.offsetWidth;
 
@@ -519,12 +524,9 @@ function attachSwipeHandlers(el, onCommit){
       el.style.transform = `translateX(${direction * off}px) rotate(${direction*8}deg) scale(1.02)`;
       el.style.opacity = "0.0";
 
-      // After it leaves, collapse height so the list reflows smoothly
       const collapse = () => {
-        // Freeze current height, then animate to 0
         el.style.transition = "height .18s ease, margin .18s ease, padding .18s ease";
         el.style.height = `${startHeight}px`;
-        // force reflow
         void el.offsetHeight;
         el.style.height = "0px";
         el.style.marginTop = "0px";
@@ -532,10 +534,8 @@ function attachSwipeHandlers(el, onCommit){
         el.style.paddingTop = "0px";
         el.style.paddingBottom = "0px";
 
-        // Call the commit callback slightly after the collapse begins
         setTimeout(() => {
           onCommit && onCommit(commitRight ? "right" : "left");
-          // restore styles so re-rendered cards look normal
           el.style.transform = "";
           el.style.opacity = "";
           el.style.height = "";
@@ -547,10 +547,8 @@ function attachSwipeHandlers(el, onCommit){
         }, 120);
       };
 
-      // Give the slide-out a moment before collapsing
       setTimeout(collapse, 180);
     } else {
-      // Snap back
       el.style.transform = "";
       el.style.opacity = "";
       setTimeout(() => resetClasses(), 180);
@@ -585,7 +583,7 @@ function openPhotoModal(photos) {
 }
 
 /* =========================
-   DISPUTE FORM (adds Subcontractor dropdown)
+   DISPUTE FORM (read-only reason + editable amount + Subcontractor)
 ========================= */
 function ensureDisputeForm(sheet) {
   if (!disputeFormContainer) {
@@ -605,23 +603,25 @@ function ensureDisputeForm(sheet) {
     disputeSubSelect.style.boxSizing = "border-box";
     disputeSubSelect.required = true;
 
-    // Reason textarea
-    const reasonLabel = document.createElement("label");
-    reasonLabel.setAttribute("for", "disputeReasonInput");
-    reasonLabel.textContent = "Reason for dispute (required)";
+    // Original Reason (read-only)
+    const existingReasonLabel = document.createElement("label");
+    existingReasonLabel.textContent = "Original Reason (read-only)";
 
-    disputeReasonInput = document.createElement("textarea");
-    disputeReasonInput.id = "disputeReasonInput";
-    disputeReasonInput.placeholder = "Enter the reason…";
-    disputeReasonInput.rows = 3;
-    disputeReasonInput.style.width = "100%";
-    disputeReasonInput.style.boxSizing = "border-box";
-    disputeReasonInput.style.margin = "6px 0 10px 0";
+    disputeReasonDisplay = document.createElement("div");
+    disputeReasonDisplay.id = "disputeReasonDisplay";
+    disputeReasonDisplay.style.width = "100%";
+    disputeReasonDisplay.style.boxSizing = "border-box";
+    disputeReasonDisplay.style.padding = "10px";
+    disputeReasonDisplay.style.border = "1px solid #e1e4e8";
+    disputeReasonDisplay.style.borderRadius = "8px";
+    disputeReasonDisplay.style.background = "#f8fafc";
+    disputeReasonDisplay.style.margin = "6px 0 10px 0";
+    disputeReasonDisplay.style.whiteSpace = "pre-wrap";
 
-    // Amount input
+    // Amount input (editable)
     const amountLabel = document.createElement("label");
     amountLabel.setAttribute("for", "disputeAmountInput");
-    amountLabel.textContent = "Backcharge Amount (required)";
+    amountLabel.textContent = "Backcharge Amount (editable)";
 
     disputeAmountInput = document.createElement("input");
     disputeAmountInput.id = "disputeAmountInput";
@@ -630,14 +630,23 @@ function ensureDisputeForm(sheet) {
     disputeAmountInput.placeholder = "$0.00";
     disputeAmountInput.style.width = "100%";
     disputeAmountInput.style.boxSizing = "border-box";
-    disputeAmountInput.addEventListener("input", () => {
-      disputeAmountInput.value = disputeAmountInput.value.replace(/[^\d.]/g, "");
+    disputeAmountInput.addEventListener("blur", () => {
+      const n = parseCurrencyInput(disputeAmountInput.value);
+      disputeAmountInput.value = (n == null) ? "" : formatUSD(n);
+    });
+    disputeAmountInput.addEventListener("focus", () => {
+      const n = parseCurrencyInput(disputeAmountInput.value);
+      disputeAmountInput.value = (n == null) ? "" : String(n);
+      try {
+        const len = disputeAmountInput.value.length;
+        disputeAmountInput.setSelectionRange(len, len);
+      } catch(e){}
     });
 
     disputeFormContainer.appendChild(subLabel);
     disputeFormContainer.appendChild(disputeSubSelect);
-    disputeFormContainer.appendChild(reasonLabel);
-    disputeFormContainer.appendChild(disputeReasonInput);
+    disputeFormContainer.appendChild(existingReasonLabel);
+    disputeFormContainer.appendChild(disputeReasonDisplay);
     disputeFormContainer.appendChild(amountLabel);
     disputeFormContainer.appendChild(disputeAmountInput);
 
@@ -647,27 +656,24 @@ function ensureDisputeForm(sheet) {
 
 // Build subcontractor options filtered by the record's Vanir Branch
 function populateSubcontractorOptionsForRecord(record){
-  // Get branch names on the current record
   const recordBranchNames = (record.fields["Vanir Branch"] || [])
     .map(id => getCachedRecord(BRANCH_TABLE, id));
 
   const subs = (tableRecords[SUBCONTRACTOR_TABLE] || []);
   const options = [];
 
-  // Helper: get sub's branch names (assuming linked field "Vanir Branch" on the sub table)
   function getSubBranchNames(sub){
     const ids = sub.fields["Vanir Branch"] || [];
     return Array.isArray(ids) ? ids.map(id => getCachedRecord(BRANCH_TABLE, id)) : [];
   }
 
-  // Build filtered list
   subs.forEach(sub => {
     const name = sub.fields["Subcontractor Company Name"];
     if (!name) return;
 
     const subBranchNames = getSubBranchNames(sub);
     const intersects = recordBranchNames.length === 0
-      ? true // if record has no branch, show all
+      ? true
       : subBranchNames.some(b => recordBranchNames.includes(b));
 
     if (intersects) {
@@ -675,7 +681,6 @@ function populateSubcontractorOptionsForRecord(record){
     }
   });
 
-  // Fallback: if no matches, show all subs
   if (options.length === 0) {
     subs.forEach(sub => {
       const name = sub.fields["Subcontractor Company Name"];
@@ -683,15 +688,13 @@ function populateSubcontractorOptionsForRecord(record){
     });
   }
 
-  // Sort A→Z
   options.sort((a,b)=> a.name.localeCompare(b.name));
 
-  // Fill the select
   disputeSubSelect.innerHTML = `<option value="">-- Select subcontractor --</option>`;
   options.forEach(o => {
     const opt = document.createElement("option");
-    opt.value = o.id;         // record ID (linked record needs this)
-    opt.textContent = o.name; // display label
+    opt.value = o.id;
+    opt.textContent = o.name;
     disputeSubSelect.appendChild(opt);
   });
 }
@@ -705,7 +708,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   pendingDecision = decision;
 
   const rec = getRecordById(recordId);
-  pendingRecordIdNumber = rec?.fields?.["ID Number"] ?? null; // <-- capture ID Number for toast
+  pendingRecordIdNumber = rec?.fields?.["ID Number"] ?? null;
 
   const sheet = document.getElementById("decisionSheet");
   const title = document.getElementById("decisionTitle");
@@ -719,19 +722,28 @@ function openDecisionSheet(recordId, jobName, decision) {
   title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
   msg.innerHTML = `Are you sure you want to mark <strong>${jobName || "Unknown Job"}</strong> as "<strong>${decision}</strong>"?`;
 
-  // Show only the relevant button
   approveBtn.style.display = decision === "Approve" ? "block" : "none";
   disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
 
   if (decision === "Dispute") {
     populateSubcontractorOptionsForRecord(rec);
     disputeFormContainer.style.display = "block";
-    disputeReasonInput.value = "";
-    disputeAmountInput.value = "";
+
+    // Prefill read-only original reason and editable amount from the record
+    const originalReason = rec?.fields?.["Issue"] || "";
+    const originalAmount = rec?.fields?.["Backcharge Amount"];
+
+    disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
+    if (originalAmount == null || originalAmount === "") {
+      disputeAmountInput.value = "";
+    } else {
+      disputeAmountInput.value = formatUSD(originalAmount);
+    }
+
     disputeSubSelect.value = "";
   } else {
     disputeFormContainer.style.display = "none";
-    disputeReasonInput.value = "";
+    disputeReasonDisplay.textContent = "";
     disputeAmountInput.value = "";
     disputeSubSelect.value = "";
   }
@@ -768,7 +780,7 @@ function closeDecisionSheet(){
 
   if (disputeFormContainer) {
     disputeFormContainer.style.display = "none";
-    if (disputeReasonInput) disputeReasonInput.value = "";
+    if (disputeReasonDisplay) disputeReasonDisplay.textContent = "";
     if (disputeAmountInput) disputeAmountInput.value = "";
     if (disputeSubSelect) disputeSubSelect.value = "";
   }
@@ -785,9 +797,6 @@ function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
 /* =========================
    PATCH TO AIRTABLE
 ========================= */
-// =========================
-// PATCH TO AIRTABLE
-// =========================
 async function confirmDecision(decision) {
   if (!pendingRecordId || !decision) return;
 
@@ -801,32 +810,25 @@ async function confirmDecision(decision) {
       disputeSubSelect.focus();
       return;
     }
-    fieldsToPatch["Subcontractor to Backcharge"] = [selectedSubId]; // linked record array
+    fieldsToPatch["Subcontractor to Backcharge"] = [selectedSubId];
 
-    // Require reason
-    const reasonVal = disputeReasonInput?.value.trim();
-    if (!reasonVal) {
-      alert("Please enter the reason for the dispute.");
-      disputeReasonInput.focus();
-      return;
-    }
-    fieldsToPatch["Reason for dispute"] = reasonVal;
-
-    // Require amount (numeric)
+    // Amount (required; editable)
     const amountRaw = disputeAmountInput?.value.trim();
     if (!amountRaw) {
       alert("Please enter the backcharge amount.");
       disputeAmountInput.focus();
       return;
     }
-    const cleaned = amountRaw.replace(/[^0-9.]/g, "");
-    const parsed = parseFloat(cleaned);
-    if (isNaN(parsed) || parsed < 0) {
-      alert("Please enter a valid positive numeric Backcharge Amount (e.g., 1250.00).");
+    const parsed = parseCurrencyInput(amountRaw);
+    if (parsed == null || isNaN(parsed) || parsed < 0) {
+      alert("Please enter a valid positive Backcharge Amount (e.g., 1250.00).");
       disputeAmountInput.focus();
       return;
     }
     fieldsToPatch["Backcharge Amount"] = parsed;
+
+    // NOTE: we intentionally do NOT allow editing the original reason here.
+    // We just display it read-only (from the record's "Issue" field).
   }
 
   showLoading();
@@ -849,7 +851,6 @@ async function confirmDecision(decision) {
 
     vibrate(30);
 
-    // Success toast includes the ID Number if available
     const idFrag = (pendingRecordIdNumber !== null && pendingRecordIdNumber !== undefined) ? `ID #${pendingRecordIdNumber} – ` : "";
     showToast(`${idFrag}${pendingRecordName || "Record"} marked as ${decision}`);
 
@@ -898,7 +899,7 @@ function updateTechDropdown(skipClear = false) {
   const techFilter = document.getElementById("techFilter");
   techFilter.innerHTML = `<option value="">-- All Technicians --</option>`;
   [...techSet].sort().forEach(name => {
-    techFilter.innerHTML += `<option value="${name}">${name}</option>`;
+    techFilter.innerHTML = techFilter.innerHTML + `<option value="${name}">${name}</option>`;
   });
 
   if (activeTechFilter) {
@@ -924,7 +925,6 @@ function updateTechDropdown(skipClear = false) {
 }
 
 function restoreFilters() {
-
   applyFiltersFromURLOrStorage();
 }
 
@@ -990,7 +990,6 @@ document.addEventListener("DOMContentLoaded", () => {
   try{
     await preloadLinkedTables();
     await fetchBackcharges();
-    // After data & dropdowns are ready, apply URL deep-link filters (or storage)
     applyFiltersFromURLOrStorage();
   } finally{
     hideLoading();
