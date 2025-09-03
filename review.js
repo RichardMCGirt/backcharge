@@ -3,7 +3,7 @@
 ========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
-const TABLE_ID = "tbl1LwBCXM0DYQSJH";
+const TABLE_ID = "tblg98QfBxRd6uivq";
 
 // Linked tables
 const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb"; // “Subcontractor Company Name”
@@ -456,7 +456,7 @@ async function fetchBackcharges() {
   let offset = null;
 
   do {
-    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=OR({Approve or Dispute}="", NOT({Approve or Dispute}))`;
+    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=OR({Approved or Dispute}="", NOT({Approved or Dispute}))`;
     if (offset) url += `&offset=${offset}`;
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
@@ -551,7 +551,7 @@ function renderReviews() {
     const fields = record.fields;
 
     const jobName = fields["Job Name"] || "";
-    const reason = fields["Issue"] || "";
+    const reason = fields["Reason for Backcharge"] || "";
     let amount = fields["Backcharge Amount"] || "";
     if (amount !== "") {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -878,7 +878,7 @@ function openDecisionSheet(recordId, jobName, decision) {
     disputeVendorDisplay.textContent = vendorNames || "(None)";
 
     // Prefill read-only original reason and editable amount(s) from the record
-    const originalReason = rec?.fields?.["Issue"] || "";
+    const originalReason = rec?.fields?.["Confirm Dispute"] || "";
     const originalAmount = rec?.fields?.["Backcharge Amount"];
     const originalVendorAmount = rec?.fields?.["Amount to backcharge vendor"];
 
@@ -960,98 +960,7 @@ function ensureBackchargeFormStyles() {
   if (document.getElementById("bf-styles")) return;
   const style = document.createElement("style");
   style.id = "bf-styles";
-  style.textContent = `
-    /* Container */
-    #disputeFormContainer { width: 100%; padding: 6px 0; }
-
-    /* Mobile-first grid: flexible amount column */
-    #disputeFormContainer .bf-grid {
-      display: grid;
-      width: 100%;
-      grid-template-columns: minmax(0, 1fr) minmax(120px, 42%); /* who | amount */
-      gap: 12px 12px;
-      align-items: start;
-      box-sizing: border-box;
-    }
-
-    /* Base (neutral) styles */
-    #disputeFormContainer label {
-      font-weight: 600;
-      align-self: center;
-      font-size: 14px;
-      line-height: 1.2;
-      color: #0f172a;
-    }
-    #disputeFormContainer .bf-amount-label {
-      text-align: right;
-      align-self: center;
-      padding-right: 4px;
-    }
-    #disputeFormContainer .bf-display {
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      background: #f3f4f6;
-      padding: 12px;
-      min-height: 44px; /* finger-friendly */
-      line-height: 1.35;
-      word-break: break-word;
-      white-space: pre-wrap;
-      box-sizing: border-box;
-      color: #111;
-    }
-    #disputeFormContainer input[type="text"],
-    #disputeFormContainer select {
-      height: 44px;            /* no iOS zoom */
-      border: 1px solid #e5e7eb;
-      border-radius: 10px;
-      padding: 10px 12px;
-      width: 100%;             /* fill the amount/selector column */
-      box-sizing: border-box;
-      background: #fff;
-      color: #111;             /* amounts/text black */
-      font-size: 16px;         /* avoid iOS zoom */
-    }
-    #disputeFormContainer input::placeholder { color: #6b7280; }
-
-    /* Reason spans full width */
-    #disputeFormContainer .bf-reason label { grid-column: 1 / -1; }
-    #disputeFormContainer .bf-reason .bf-display { grid-column: 1 / -1; }
-
-    /* --- Dispute mode: labels + read-only values white, inputs remain black --- */
-    #decisionSheet.dispute-mode #disputeFormContainer label,
-    #decisionSheet.dispute-mode #disputeFormContainer .bf-amount-label {
-      color: #fff !important;
-    }
-    #decisionSheet.dispute-mode #disputeFormContainer .bf-display {
-      color: #fff !important;
-      background: transparent;
-      border-color: rgba(255, 255, 255, 0.35);
-    }
-    #decisionSheet.dispute-mode #disputeFormContainer input[type="text"],
-    #decisionSheet.dispute-mode #disputeFormContainer select {
-      color: #111 !important;
-      background: #fff !important;
-      border-color: #e5e7eb !important;
-    }
-    #decisionSheet.dispute-mode #disputeFormContainer input::placeholder {
-      color: #6b7280 !important;
-    }
-
-    /* Extra small screens: let amount column take up to 50% */
-    @media (max-width: 360px) {
-      #disputeFormContainer .bf-grid {
-        grid-template-columns: minmax(0, 1fr) minmax(110px, 50%);
-        gap: 10px 10px;
-      }
-    }
-
-    /* Larger screens: fixed amount column */
-    @media (min-width: 640px) {
-      #disputeFormContainer .bf-grid {
-        grid-template-columns: minmax(0, 1fr) 260px;
-      }
-    }
-  `;
+   
   document.head.appendChild(style);
 }
 
@@ -1142,15 +1051,35 @@ function ensureDisputeForm(sheet) {
 // Build subcontractor options from preloaded table
 function buildSubcontractorOptions(selectEl) {
   if (!selectEl) return;
+
   const existing = new Set([...selectEl.options].map(o => o.value));
   const recs = tableRecords[SUBCONTRACTOR_TABLE] || [];
-  for (const r of recs) {
-    const id = r.id;
-    const name = r.fields["Subcontractor Company Name"] || r.fields["Name"] || id;
+
+  // Helper: clean up name for sorting
+  const normalizeName = (str) =>
+    (str || "")
+      .replace(/[(){}]/g, "")  // remove () and {}
+      .trim();
+
+  // Build array of {id, name}
+  const subs = recs.map(r => {
+    const rawName = r.fields["Subcontractor Company Name"] || r.fields["Name"] || r.id;
+    return {
+      id: r.id,
+      name: rawName,
+      sortKey: normalizeName(rawName).toLowerCase()
+    };
+  });
+
+  // Sort alphabetically by cleaned-up sortKey
+  subs.sort((a, b) => a.sortKey.localeCompare(b.sortKey, undefined, { sensitivity: "base" }));
+
+  // Append in sorted order
+  for (const { id, name } of subs) {
     if (!existing.has(id)) {
       const opt = document.createElement("option");
       opt.value = id;
-      opt.textContent = name;
+      opt.textContent = name; // keep original name for display
       selectEl.appendChild(opt);
     }
   }
