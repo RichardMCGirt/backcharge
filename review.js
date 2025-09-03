@@ -11,10 +11,7 @@ const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU"; // “Client Name”
 const TECH_TABLE          = "tblj6Fp0rvN7QyjRv"; // “Full Name”
 const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK"; // “Office Name”
 const VENDOR_TABLE        = "tbl0JQXyAizkNZF5s"; // Vendor table used by "Vendor to backcharge"
-const MIRROR_TABLE_ID = "tblg98QfBxRd6uivq";
-const MIRROR_SOURCE_FIELD_NAME = "Source Record ID"; // exact name in mirror table
-const MIRROR_FIELD_TECH_NAME   = "Field Technician"; // mirror field name
-const MIRROR_FIELD_TECH_WRITABLE = false;            // set to true ONLY if mirror field is plain text
+
 
 // Helper: check that every element is a
 // Cache & State
@@ -205,144 +202,6 @@ async function preloadLinkedTables() {
 
 function getCachedRecord(tableId, recordId) {
   return recordCache[`${tableId}_${recordId}`] || recordId;
-}
-async function upsertMirrorFromMain(mainRec) {
-  console.log("➡️ upsertMirrorFromMain called", { mainRecId: mainRec?.id });
-
-  const src = mainRec?.fields || {};
-  const backchargeApplied = !!src["Backcharge Applied"];
-  const backchargeStatus = backchargeApplied ? ["Applied"] : ["Unapplied"];
-
-  const subLinks      = asLinkedIds(src["Subcontractor to Backcharge"]);
-  const customerLinks = asLinkedIds(src["Customer"]);
-  const techNames     = getTechNamesFromRecord(mainRec).join(", ");
-
-  console.log("📋 Source snapshot:", {
-    jobName: src["Job Name"],
-    issue: src["Issue"],
-    backchargeAmount: src["Backcharge Amount"],
-    backchargeApplied,
-    subLinks,
-    customerLinks,
-    techNames
-  });
-
-  // --- 1) Find existing mirror row by Source Record ID ---
-  const filter = `({${MIRROR_SOURCE_FIELD_NAME}}='${mainRec.id}')`;
-  const findUrl = `https://api.airtable.com/v0/${BASE_ID}/${MIRROR_TABLE_ID}?filterByFormula=${encodeURIComponent(filter)}&pageSize=1`;
-  console.log("🌐 Mirror lookup:", findUrl);
-
-  let existing = null;
-  try {
-    const findRes = await fetch(findUrl, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` }});
-    const found = await findRes.json();
-    if (!findRes.ok) {
-      console.warn("⚠️ Mirror lookup failed:", found);
-    } else {
-      existing = found.records?.[0] || null;
-      console.log("🔎 Mirror lookup result:", found);
-    }
-  } catch (e) {
-    console.warn("⚠️ Mirror lookup exception:", e);
-  }
-
-  // Utility: PATCH a single field (or a few) with detailed logs
-  async function patchMirror(mirrorId, fieldsObj, label) {
-    const url = `https://api.airtable.com/v0/${BASE_ID}/${MIRROR_TABLE_ID}/${mirrorId}`;
-    const body = { fields: fieldsObj, typecast: true };
-    console.log(`✏️ Patching mirror (${label})`, body);
-    const res = await fetch(url, {
-      method: "PATCH",
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      console.error(`❌ Patch failed (${label})`, json);
-      return { ok: false, json };
-    }
-    console.log(`✅ Patch ok (${label})`, json);
-    return { ok: true, json };
-  }
-
-  // --- 2) Create if missing, with SAFE baseline fields only ---
-  let mirrorId = existing?.id || null;
-  if (!mirrorId) {
-    const createUrl = `https://api.airtable.com/v0/${BASE_ID}/${MIRROR_TABLE_ID}`;
-    const createPayload = {
-      fields: {
-        [MIRROR_SOURCE_FIELD_NAME]: mainRec.id,
-        "Backcharge Status": backchargeStatus
-      },
-      typecast: true
-    };
-    console.log("➕ Creating mirror (baseline)", createPayload);
-
-    const createRes = await fetch(createUrl, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(createPayload)
-    });
-    const createJson = await createRes.json();
-    if (!createRes.ok) {
-      console.error("❌ Mirror create failed (baseline)", createJson);
-      console.warn("🧪 Check that the mirror has a text field named EXACTLY:", MIRROR_SOURCE_FIELD_NAME);
-      return; // stop here; schema issue
-    }
-    console.log("✅ Mirror created (baseline)", createJson);
-    mirrorId = createJson.id;
-  } else {
-    // Ensure status is current each time
-    await patchMirror(mirrorId, { "Backcharge Status": backchargeStatus }, "Backcharge Status");
-  }
-
-  // --- 3) Patch plain (non-linked) fields next ---
-  const plainFields = {
-    "Job Name": src["Job Name"] || "",
-    "Reason for Backcharge": src["Issue"] || "",
-    "Backcharge Amount": (src["Backcharge Amount"] == null ? null : src["Backcharge Amount"]),
-  };
-  if (MIRROR_FIELD_TECH_WRITABLE) {
-    plainFields[MIRROR_FIELD_TECH_NAME] = techNames;
-  } else {
-    console.log(`ℹ️ Skipping write to "${MIRROR_FIELD_TECH_NAME}" (likely lookup).`);
-  }
-  await patchMirror(mirrorId, plainFields, "plain fields");
-
-  // --- 4) Patch each linked field individually to pinpoint issues ---
-
-  // Customer
-  if (looksLikeLinkedIds(customerLinks)) {
-    const { ok } = await patchMirror(mirrorId, { "Customer": customerLinks }, "Customer (links)");
-    if (!ok) {
-      console.warn("👀 Customer links rejected. Verify mirror field 'Customer' is a Link to the SAME Customer table.");
-    }
-  } else {
-    console.warn("👀 Customer links not patched (not a rec[] array):", customerLinks);
-  }
-
-  // Subcontractor to Backcharge
-  if (looksLikeLinkedIds(subLinks)) {
-    const { ok } = await patchMirror(mirrorId, { "Subcontractor to Backcharge": subLinks }, "Subcontractor (links)");
-    if (!ok) {
-      console.warn("👀 Subcontractor links rejected. Verify mirror field 'Subcontractor to Backcharge' links to tblgsUP8po27WX7Hb.");
-    }
-  } else {
-    console.warn("👀 Subcontractor links not patched (not a rec[] array):", subLinks);
-  }
-
-  console.log("🏁 upsertMirrorFromMain finished", { mirrorId });
-}
-
-// Helper used above; keep it defined globally
-function looksLikeLinkedIds(arr) {
-  return Array.isArray(arr) && arr.length > 0 && arr.every(v => typeof v === "string" && /^rec[A-Za-z0-9]{14}$/.test(v));
 }
 
 /* =========================
@@ -551,8 +410,8 @@ function renderReviews() {
     const fields = record.fields;
 
     const jobName = fields["Job Name"] || "";
-    const reason = fields["Issue"] || "";
-    let amount = fields["Backcharge Amount"] || "";
+    const reason = fields["Reason for Backcharge"] || "";
+    let amount = fields["Builder Backcharged Amount"] || "";
     if (amount !== "") {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
@@ -861,7 +720,7 @@ function openDecisionSheet(recordId, jobName, decision) {
 
     // Prefill read-only original reason and editable amount(s) from the record
     const originalReason = rec?.fields?.["Issue"] || "";
-    const originalAmount = rec?.fields?.["Builder Backcharged Amountv"];
+    const originalAmount = rec?.fields?.["Builder Backcharged Amount"];
     const originalVendorAmount = rec?.fields?.["Backcharge Amount"];
 
 
@@ -1221,9 +1080,6 @@ async function confirmDecision(decision) {
 
     const updated = await res.json();
     console.log("✅ Record successfully updated:", updated);
-
-    // 🔁 NEW: create/update the mirror row
-  
 
     vibrate(30);
 
