@@ -581,7 +581,7 @@ function renderReviews() {
       return `<span class="chip">Vendor to backcharge: ${safeName}</span>`;
     }).join(" ");
 
-    let vendorAmount = fields["Amount to backcharge vendor"];
+    let vendorAmount = fields["Backcharge Amount"];
     vendorAmount = (vendorAmount == null || vendorAmount === "")
       ? ""
       : `$${parseFloat(vendorAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -603,7 +603,7 @@ function renderReviews() {
     card.setAttribute("data-id", record.id);
     card.setAttribute("tabindex", "0");
     card.innerHTML = `
-      <div class="swipe-hint swipe-approve"></div>
+      <div class="swipe-hint swipe-Approved"></div>
       <div class="swipe-hint swipe-dispute"></div>
       <br>
 <p style="
@@ -861,8 +861,8 @@ function openDecisionSheet(recordId, jobName, decision) {
 
     // Prefill read-only original reason and editable amount(s) from the record
     const originalReason = rec?.fields?.["Issue"] || "";
-    const originalAmount = rec?.fields?.["Backcharge Amount"];
-    const originalVendorAmount = rec?.fields?.["Amount to backcharge vendor"];
+    const originalAmount = rec?.fields?.["Builder Backcharged Amountv"];
+    const originalVendorAmount = rec?.fields?.["Backcharge Amount"];
 
 
 
@@ -897,10 +897,10 @@ function openDecisionSheet(recordId, jobName, decision) {
     if (disputeSub2Select) disputeSub2Select.value = "";
   }
 
-  approveBtn.classList.toggle("attn", decision === "Approve");
+  approveBtn.classList.toggle("attn", decision === "Approved");
   disputeBtn.classList.toggle("attn", decision === "Dispute");
 
-  approveBtn.textContent = "✔ Approve";
+  approveBtn.textContent = "✔ Approved";
   disputeBtn.textContent = "✖ Dispute";
 
   sheet.classList.add("open");
@@ -1118,7 +1118,7 @@ async function confirmDecision(decision) {
 
   console.log("➡️ confirmDecision start", { recordId: pendingRecordId, decision });
 
-  const fieldsToPatch = { "Approve or Dispute": decision };
+  const fieldsToPatch = { "Approved or Dispute": decision };
 
   if (decision === "Dispute") {
     console.log("📝 Dispute selected, validating amounts...");
@@ -1180,25 +1180,20 @@ async function confirmDecision(decision) {
         disputeVendorAmountInput.focus();
         return;
       }
-      fieldsToPatch["Amount to backcharge vendor"] = vParsed;
+      fieldsToPatch["Backcharge Amount"] = vParsed;
     } else {
-      fieldsToPatch["Amount to backcharge vendor"] = null;
+      fieldsToPatch["Backcharge Amount"] = null;
     }
 
     // 🔽 NEW: Read selected subcontractors from dropdowns and patch links
     const selectedPrimaryId = disputeSubSelect?.value || "";
-    const selectedSecondaryId = disputeSub2Select?.value || "";
 
     // Primary subcontractor link
     fieldsToPatch["Subcontractor to Backcharge"] = selectedPrimaryId ? [selectedPrimaryId] : [];
 
     // Secondary subcontractor link – find the proper field casing used by the table
-    const secSubFieldName = pickFieldName(rec?.fields || {}, [
-      "Secondary Subcontractor to backcharge",
-      "Secondary Subcontractor to Backcharge",
-      "Secondary Subcontractor"
-    ]);
-    fieldsToPatch[secSubFieldName] = selectedSecondaryId ? [selectedSecondaryId] : [];
+   
+    
   }
 
   console.log("📤 PATCH payload prepared:", fieldsToPatch);
@@ -1228,20 +1223,7 @@ async function confirmDecision(decision) {
     console.log("✅ Record successfully updated:", updated);
 
     // 🔁 NEW: create/update the mirror row
-    try {
-      const getUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`;
-      console.log("🌐 Refetching main for mirror upsert:", getUrl);
-      const getRes = await fetch(getUrl, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` }});
-      if (!getRes.ok) {
-        console.warn("⚠️ Failed to refetch main record for mirror upsert:", await getRes.text());
-      } else {
-        const updatedMain = await getRes.json();
-        console.log("🔁 Upserting mirror from main:", updatedMain?.id);
-        await upsertMirrorFromMain(updatedMain);
-      }
-    } catch (e) {
-      console.warn("🔥 Mirror upsert error:", e);
-    }
+  
 
     vibrate(30);
 
@@ -1331,7 +1313,7 @@ function restoreFilters() {
 ========================= */
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("cancelDecisionBtn").onclick = closeDecisionSheet;
-  document.getElementById("confirmApproveBtn").onclick = ()=> confirmDecision("Approve");
+  document.getElementById("confirmApproveBtn").onclick = ()=> confirmDecision("Approved");
   document.getElementById("confirmDisputeBtn").onclick = ()=> confirmDecision("Dispute");
 
   const techFilter = document.getElementById("techFilter");
