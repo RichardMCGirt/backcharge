@@ -551,22 +551,13 @@ function renderReviews() {
     const fields = record.fields;
 
     const jobName = fields["Job Name"] || "";
-    const reason = fields["Reason for Backcharge"] || "";
+    const reason = fields["Issue"] || "";
     let amount = fields["Backcharge Amount"] || "";
     if (amount !== "") {
       amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
 
-    // NEW: Secondary sub amount
-    const secAmtField = pickFieldName(fields, [
-      "Amount to backcharge secondary sub",
-      "Amount to Backcharge Secondary Sub",
-      "Secondary Backcharge Amount"
-    ]);
-    let secondaryAmount = fields[secAmtField];
-    secondaryAmount = (secondaryAmount == null || secondaryAmount === "")
-      ? ""
-      : `$${parseFloat(secondaryAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+   
 
     const idNumber = fields["ID Number"];
     const branch = getBranchNamesFromRecord(record).join(", ");
@@ -575,14 +566,7 @@ function renderReviews() {
     const customer = normalizeNames(fields["Customer"] || [], CUSTOMER_TABLE).join(", ");
     const subcontractor = normalizeNames(fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE).join(", ");
 
-    // NEW: Secondary subcontractor display
-    const secSubField = pickFieldName(fields, [
-      "Secondary Subcontractor to backcharge",
-      "Secondary Subcontractor to Backcharge",
-      "Secondary Subcontractor"
-    ]);
-    const secondarySubcontractor = normalizeNames(fields[secSubField] || [], SUBCONTRACTOR_TABLE).join(", ");
-
+   
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
 
@@ -640,8 +624,6 @@ function renderReviews() {
         ${customer ? `<span class="chip">Builder: ${escapeHtml(customer)}</span>` : ""}
         ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${escapeHtml(subcontractor)}</span>` : ""}
         ${amount ? `<span class="chip">Amount to backcharge (sub): ${escapeHtml(amount)}</span>` : ""}
-        ${secondarySubcontractor ? `<span class="chip">Secondary subcontractor: ${escapeHtml(secondarySubcontractor)}</span>` : ""}
-        ${secondaryAmount ? `<span class="chip">Secondary sub amount: ${escapeHtml(secondaryAmount)}</span>` : ""}
         ${vendorLinksHtml || ""}
         ${vendorAmount ? `<span class="chip">Vendor Backcharge amount: ${escapeHtml(vendorAmount)}</span>` : ""}
       </div>
@@ -878,12 +860,11 @@ function openDecisionSheet(recordId, jobName, decision) {
     disputeVendorDisplay.textContent = vendorNames || "(None)";
 
     // Prefill read-only original reason and editable amount(s) from the record
-    const originalReason = rec?.fields?.["Confirm Dispute"] || "";
+    const originalReason = rec?.fields?.["Issue"] || "";
     const originalAmount = rec?.fields?.["Backcharge Amount"];
     const originalVendorAmount = rec?.fields?.["Amount to backcharge vendor"];
 
-    // NEW: Secondary amount (handle capitalization variants)
-   
+
 
     disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
 
@@ -893,7 +874,7 @@ function openDecisionSheet(recordId, jobName, decision) {
     } else {
       disputeAmountInput.value = formatUSD(originalAmount);
     }
-  
+   
     if (originalVendorAmount == null || originalVendorAmount === "") {
       disputeVendorAmountInput.value = "";
     } else {
@@ -903,14 +884,6 @@ function openDecisionSheet(recordId, jobName, decision) {
     // Prefill selects with current linked subs (supports ID or Name values)
     const primVal = (Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) ? rec.fields["Subcontractor to Backcharge"][0] : null);
     selectOptionByIdOrName(disputeSubSelect, primVal);
-
-    const secSubField = pickFieldName(rec?.fields || {}, [
-      "Secondary Subcontractor to backcharge",
-      "Secondary Subcontractor to Backcharge",
-      "Secondary Subcontractor"
-    ]);
-    const secVal = (Array.isArray(rec?.fields?.[secSubField]) ? rec.fields[secSubField][0] : null);
-    selectOptionByIdOrName(disputeSub2Select, secVal);
 
   } else {
     disputeFormContainer.style.display = "none";
@@ -979,14 +952,15 @@ function ensureDisputeForm(sheet) {
         </select>
         <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
 
-        <!-- Row: Secondary Subcontractor -->
-        <label for="disputeSub2Select">Secondary Subcontractor to Backcharge</label>
-        <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
+      <div id="bf-secondary-sub-row" class="bf-row bf-hidden">
+  <label for="disputeSub2Select">Secondary Subcontractor to Backcharge</label>
+  <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
 
-        <select id="disputeSub2Select">
-          <option value="">— None —</option>
-        </select>
-        <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="$0.00" />
+  <select id="disputeSub2Select">
+    <option value="">— None —</option>
+  </select>
+  <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="$0.00" />
+</div>
 
         <!-- Row: Vendor -->
         <label for="disputeVendorDisplay">Vendor to Backcharge</label>
