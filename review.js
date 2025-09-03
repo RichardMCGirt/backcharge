@@ -31,20 +31,20 @@ let lastActiveCardId = null;
 // Dispute form elements (created once, reused)
 let disputeFormContainer = null;
 let disputeReasonDisplay = null;   // read-only original reason
-let disputeAmountInput = null;     // editable amount only (subcontractor)
-let disputeSubDisplay = null;      // (retained var, but now we use select below)
 
-// NEW: Secondary Subcontractor display + amount
-let disputeSub2Display = null;         // (retained var, but now we use select below)
-let disputeAmount2Input = null;        // editable amount for secondary sub
+// Amount inputs (only one is used per record; both map to Backcharge Amount)
+let disputeAmountInput = null;          // subcontractor amount
+let disputeVendorAmountInput = null;    // vendor amount
 
-// NEW: Vendor (display + editable amount)
-let disputeVendorDisplay = null;        // read-only vendor(s)
-let disputeVendorAmountInput = null;    // editable vendor amount
-
-// NEW: Dropdown elements for subcontractors
+// Dropdown elements for subcontractors
 let disputeSubSelect = null;            // primary subcontractor <select>
-let disputeSub2Select = null;           // secondary subcontractor <select>
+let disputeSub2Select = null;           // secondary subcontractor <select> (optional)
+
+// Secondary Subcontractor amount (optional, separate field(s) in base)
+let disputeAmount2Input = null;
+
+// Read-only displays
+let disputeVendorDisplay = null;        // vendor(s) names
 
 /* =========================
    UTIL / UI HELPERS
@@ -131,7 +131,7 @@ function normalizeNames(fieldVal, tableId = null) {
   return [];
 }
 
-// NEW: For link rendering we need id + name
+// For link rendering we need id + name
 function getLinkedRecords(tableId, fieldVal) {
   const arr = Array.isArray(fieldVal)
     ? fieldVal
@@ -146,8 +146,7 @@ function getLinkedRecords(tableId, fieldVal) {
     .filter(x => x.name);
 }
 
-// Convenience getters for your two key fields
-// UPDATED: Prefer plain text "Tech name"; fallback to legacy "Field Technician"
+// Convenience getters
 function getTechNamesFromRecord(rec) {
   const techPlain = rec?.fields?.["Tech name"];
   if (techPlain) return normalizeNames(techPlain, null);
@@ -196,7 +195,6 @@ async function preloadLinkedTables() {
   await fetchAllRecords(CUSTOMER_TABLE, ["Client Name", "Name"]);
   await fetchAllRecords(TECH_TABLE, ["Full Name", "Name"]);
   await fetchAllRecords(BRANCH_TABLE, ["Office Name", "Name"]); 
-  // NEW: Preload vendors so we can display names + build links
   await fetchAllRecords(VENDOR_TABLE, ["Vendor Name", "Name", "Company", "Company Name"]);
 }
 
@@ -358,12 +356,10 @@ function renderReviews() {
     records = records.filter(rec => {
       const jobName = (rec.fields["Job Name"] || "").toLowerCase();
 
-      // FIX: Correct constant for subcontractor table
       const subcontractor = normalizeNames(rec.fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE)
         .join(", ")
         .toLowerCase();
 
-      // NEW: Secondary subcontractor in search (handle capitalization variants)
       const secondarySubField = pickFieldName(rec.fields, [
         "Secondary Subcontractor to backcharge",
         "Secondary Subcontractor to Backcharge",
@@ -387,7 +383,6 @@ function renderReviews() {
 
       const idNumber = (rec.fields["ID Number"] ?? "").toString().toLowerCase();
 
-      // NEW: vendors in search
       const vendorNames = getLinkedRecords(VENDOR_TABLE, rec.fields["Vendor to backcharge"] || [])
         .map(v => v.name)
         .join(", ")
@@ -411,25 +406,42 @@ function renderReviews() {
 
     const jobName = fields["Job Name"] || "";
     const reason = fields["Reason for Backcharge"] || "";
-    let amount = fields["Builder Backcharged Amount"] || "";
-    if (amount !== "") {
-      amount = `$${parseFloat(amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const idNumber = fields["ID Number"];
+
+    // Backcharge (one field used for either sub or vendor)
+ let backchargeAmount = fields["Backcharge Amount"];
+let amountChip = "";
+if (backchargeAmount !== "" && backchargeAmount != null) {
+  const hasVendor = Array.isArray(fields["Vendor to backcharge"]) && fields["Vendor to backcharge"].length > 0;
+  const hasSub    = Array.isArray(fields["Subcontractor to Backcharge"]) && fields["Subcontractor to Backcharge"].length > 0;
+  const label = hasVendor && !hasSub ? "Vendor Backcharge" : "Subcontractor Backcharge";
+
+  const amt = `$${parseFloat(backchargeAmount).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+  amountChip = `<span class="chip">${escapeHtml(label)}: ${escapeHtml(amt)}</span>`;
+}
+
+
+    // NEW: Builder Backcharged Amount (separate field) chip
+    let builderBackchargeChip = "";
+    const builderBackcharged = fields["Builder Backcharged Amount"];
+    if (builderBackcharged !== "" && builderBackcharged != null) {
+      const bAmt = `$${parseFloat(builderBackcharged).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      builderBackchargeChip = `<span class="chip">Builder Backcharge: ${escapeHtml(bAmt)}</span>`;
     }
 
-   
-
-    const idNumber = fields["ID Number"];
     const branch = getBranchNamesFromRecord(record).join(", ");
     const techNames = getTechNamesFromRecord(record);
     const technician = techNames.join(", ");
     const customer = normalizeNames(fields["Customer"] || [], CUSTOMER_TABLE).join(", ");
     const subcontractor = normalizeNames(fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE).join(", ");
 
-   
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
 
-    // NEW: Vendor(s) and vendor amount
+    // Vendor(s) chip
     const vendors = getLinkedRecords(VENDOR_TABLE, fields["Vendor to backcharge"] || []);
     const vendorLinksHtml = vendors.map(v => {
       const safeName = escapeHtml(v.name);
@@ -439,11 +451,6 @@ function renderReviews() {
       }
       return `<span class="chip">Vendor to backcharge: ${safeName}</span>`;
     }).join(" ");
-
-    let vendorAmount = fields["Backcharge Amount"];
-    vendorAmount = (vendorAmount == null || vendorAmount === "")
-      ? ""
-      : `$${parseFloat(vendorAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
     const idChip = (idNumber !== undefined && idNumber !== null) ? `<span>ID #${idNumber}</span>` : "";
     const branchChip = (branch && branch !== activeBranchFilter) ? `<span class="chip">${escapeHtml(branch)}</span>` : "";
@@ -482,9 +489,9 @@ function renderReviews() {
         ${techChip}
         ${customer ? `<span class="chip">Builder: ${escapeHtml(customer)}</span>` : ""}
         ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${escapeHtml(subcontractor)}</span>` : ""}
-        ${amount ? `<span class="chip">Amount to backcharge (sub): ${escapeHtml(amount)}</span>` : ""}
+        ${builderBackchargeChip}
+        ${amountChip}
         ${vendorLinksHtml || ""}
-        ${vendorAmount ? `<span class="chip">Vendor Backcharge amount: ${escapeHtml(vendorAmount)}</span>` : ""}
       </div>
      ${
   reason || photoCount > 0
@@ -697,7 +704,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   const backdrop = document.getElementById("sheetBackdrop");
 
   ensureDisputeForm(sheet);
-  sheet.classList.toggle("dispute-mode", decision === "Dispute"); // <— add this line
+  sheet.classList.toggle("dispute-mode", decision === "Dispute");
 
   title.textContent = decision === "Approve" ? "Confirm Approve" : "Confirm Dispute";
   msg.innerHTML = `Are you sure you want to mark <strong>${escapeHtml(jobName || "Unknown Job")}</strong> as "<strong>${escapeHtml(decision)}</strong>"?`;
@@ -713,36 +720,77 @@ function openDecisionSheet(recordId, jobName, decision) {
     buildSubcontractorOptions(disputeSub2Select);
 
     // Prefill read-only vendor(s)
-    const vendorNames = getLinkedRecords(VENDOR_TABLE, rec?.fields?.["Vendor to backcharge"] || [])
-      .map(v => v.name)
-      .join(", ");
+    const vendorRecs = getLinkedRecords(VENDOR_TABLE, rec?.fields?.["Vendor to backcharge"] || []);
+    const vendorNames = vendorRecs.map(v => v.name).join(", ");
     disputeVendorDisplay.textContent = vendorNames || "(None)";
 
-    // Prefill read-only original reason and editable amount(s) from the record
+    // Prefill reason and amounts — both amount inputs reflect the single "Backcharge Amount" field
     const originalReason = rec?.fields?.["Issue"] || "";
-    const originalAmount = rec?.fields?.["Builder Backcharged Amount"];
-    const originalVendorAmount = rec?.fields?.["Backcharge Amount"];
-
-
+    const originalBackcharge = rec?.fields?.["Backcharge Amount"];
 
     disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
 
-    // Amount inputs
-    if (originalAmount == null || originalAmount === "") {
+    if (originalBackcharge == null || originalBackcharge === "") {
       disputeAmountInput.value = "";
-    } else {
-      disputeAmountInput.value = formatUSD(originalAmount);
-    }
-   
-    if (originalVendorAmount == null || originalVendorAmount === "") {
       disputeVendorAmountInput.value = "";
     } else {
-      disputeVendorAmountInput.value = formatUSD(originalVendorAmount);
+      const fmt = formatUSD(originalBackcharge);
+      disputeAmountInput.value = fmt;
+      disputeVendorAmountInput.value = fmt;
     }
 
     // Prefill selects with current linked subs (supports ID or Name values)
     const primVal = (Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) ? rec.fields["Subcontractor to Backcharge"][0] : null);
     selectOptionByIdOrName(disputeSubSelect, primVal);
+
+    const secondarySubFieldName = pickFieldName(rec?.fields || {}, [
+      "Secondary Subcontractor to backcharge",
+      "Secondary Subcontractor to Backcharge",
+      "Secondary Subcontractor"
+    ]);
+    const secVal = (Array.isArray(rec?.fields?.[secondarySubFieldName]) ? rec.fields[secondarySubFieldName][0] : null);
+    selectOptionByIdOrName(disputeSub2Select, secVal);
+
+    // Decide which row to show: show either primary sub row OR vendor row
+    const primaryRowEl = disputeFormContainer.querySelector("#bf-primary-sub-row");
+    const vendorRowEl  = disputeFormContainer.querySelector("#bf-vendor-row");
+
+    const hasVendor = vendorRecs.length > 0;
+    const hasPrimarySub = Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) && rec.fields["Subcontractor to Backcharge"].length > 0;
+
+    const updateAmountMode = () => {
+      const subSelected = !!(disputeSubSelect?.value);
+      if (subSelected) {
+        // Use subcontractor amount
+        primaryRowEl?.classList.remove("bf-hidden");
+        vendorRowEl?.classList.add("bf-hidden");
+        if (disputeAmountInput)       { disputeAmountInput.disabled = false; }
+        if (disputeVendorAmountInput) { disputeVendorAmountInput.disabled = true; disputeVendorAmountInput.value = ""; }
+      } else if (hasVendor) {
+        // Use vendor amount
+        primaryRowEl?.classList.add("bf-hidden");
+        vendorRowEl?.classList.remove("bf-hidden");
+        if (disputeAmountInput)       { disputeAmountInput.disabled = true; disputeAmountInput.value = ""; }
+        if (disputeVendorAmountInput) { disputeVendorAmountInput.disabled = false; }
+      } else {
+        // No vendor present and no sub selected → default to subcontractor mode (allow picking)
+        primaryRowEl?.classList.remove("bf-hidden");
+        vendorRowEl?.classList.add("bf-hidden");
+        if (disputeAmountInput)       { disputeAmountInput.disabled = false; }
+        if (disputeVendorAmountInput) { disputeVendorAmountInput.disabled = true; disputeVendorAmountInput.value = ""; }
+      }
+    };
+
+    // Initial mode on open
+    if (hasPrimarySub) {
+      disputeSubSelect && (disputeSubSelect.value = primVal || disputeSubSelect.value);
+    }
+    updateAmountMode();
+
+    // Change handler: selecting a sub toggles visibility between rows
+    if (disputeSubSelect) {
+      disputeSubSelect.onchange = updateAmountMode;
+    }
 
   } else {
     disputeFormContainer.style.display = "none";
@@ -751,7 +799,6 @@ function openDecisionSheet(recordId, jobName, decision) {
     if (disputeAmountInput) disputeAmountInput.value = "";
     if (disputeAmount2Input) disputeAmount2Input.value = "";
     if (disputeVendorAmountInput) disputeVendorAmountInput.value = "";
-    // Clear selects
     if (disputeSubSelect) disputeSubSelect.value = "";
     if (disputeSub2Select) disputeSub2Select.value = "";
   }
@@ -778,17 +825,61 @@ function openDecisionSheet(recordId, jobName, decision) {
 /* =========================
    BOTTOM SHEET CONFIRM
 ========================= */
-// Inject minimal styles once for the dispute sheet grid layout
 function ensureBackchargeFormStyles() {
   if (document.getElementById("bf-styles")) return;
   const style = document.createElement("style");
   style.id = "bf-styles";
-   
+  style.textContent = `
+    #disputeFormContainer { width: 100%; padding: 4px 0; }
+    #disputeFormContainer .bf-grid {
+      display: grid;
+      width: 100%;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: 10px 14px;
+      align-items: start;
+      box-sizing: border-box;
+    }
+    #disputeFormContainer label {
+      font-weight: 600;
+      align-self: center;
+      font-size: 14px;
+      color: #0f172a;
+    }
+    #disputeFormContainer .bf-amount-label {
+      text-align: right;
+      align-self: center;
+      padding-right: 4px;
+    }
+    #disputeFormContainer .bf-display {
+      border: 1px solid #e5e7eb;
+      background: #f8fafc;
+      border-radius: 10px;
+      padding: 8px 10px;
+    }
+    #disputeFormContainer select,
+    #disputeFormContainer input[type="text"] {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+    #disputeFormContainer .bf-reason {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 8px;
+      align-items: start;
+    }
+    /* group rows for show/hide */
+    #disputeFormContainer .bf-row { display: contents; }
+    #disputeFormContainer .bf-hidden { display: none !important; }
+  `;
   document.head.appendChild(style);
 }
 
 /* =========================
-   DISPUTE FORM (grid-aligned: who-to-backcharge | amount)
+   DISPUTE FORM (grid-aligned)
 ========================= */
 function ensureDisputeForm(sheet) {
   if (!disputeFormContainer) {
@@ -802,31 +893,36 @@ function ensureDisputeForm(sheet) {
     disputeFormContainer.innerHTML = `
       <div class="bf-grid">
 
-        <!-- Row: Subcontractor -->
-        <label for="disputeSubSelect">Primary Subcontractor to Backcharge</label>
-        <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
+        <!-- Row: Subcontractor (wrapped so we can hide as a group) -->
+        <div id="bf-primary-sub-row" class="bf-row">
+          <label for="disputeSubSelect">Primary Subcontractor to Backcharge</label>
+          <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
 
-        <select id="disputeSubSelect">
-          <option value="">— None —</option>
-        </select>
-        <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
+          <select id="disputeSubSelect">
+            <option value="">— None —</option>
+          </select>
+          <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="\$0.00" />
+        </div>
 
-      <div id="bf-secondary-sub-row" class="bf-row bf-hidden">
-  <label for="disputeSub2Select">Secondary Subcontractor to Backcharge</label>
-  <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
+        <!-- Row: Secondary Subcontractor (hidden by default unless enabled) -->
+        <div id="bf-secondary-sub-row" class="bf-row bf-hidden">
+          <label for="disputeSub2Select">Secondary Subcontractor to Backcharge</label>
+          <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
 
-  <select id="disputeSub2Select">
-    <option value="">— None —</option>
-  </select>
-  <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="$0.00" />
-</div>
+          <select id="disputeSub2Select">
+            <option value="">— None —</option>
+          </select>
+          <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="\$0.00" />
+        </div>
 
-        <!-- Row: Vendor -->
-        <label for="disputeVendorDisplay">Vendor to Backcharge</label>
-        <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
+        <!-- Row: Vendor (wrapped so we can hide as a group) -->
+        <div id="bf-vendor-row" class="bf-row">
+          <label for="disputeVendorDisplay">Vendor to Backcharge</label>
+          <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
 
-        <div id="disputeVendorDisplay" class="bf-display" aria-live="polite"></div>
-        <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
+          <div id="disputeVendorDisplay" class="bf-display" aria-live="polite"></div>
+          <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="\$0.00" />
+        </div>
 
         <!-- Row: Reason (full width) -->
         <div class="bf-reason">
@@ -879,13 +975,11 @@ function buildSubcontractorOptions(selectEl) {
   const existing = new Set([...selectEl.options].map(o => o.value));
   const recs = tableRecords[SUBCONTRACTOR_TABLE] || [];
 
-  // Helper: clean up name for sorting
   const normalizeName = (str) =>
     (str || "")
-      .replace(/[(){}]/g, "")  // remove () and {}
+      .replace(/[(){}]/g, "")
       .trim();
 
-  // Build array of {id, name}
   const subs = recs.map(r => {
     const rawName = r.fields["Subcontractor Company Name"] || r.fields["Name"] || r.id;
     return {
@@ -895,15 +989,13 @@ function buildSubcontractorOptions(selectEl) {
     };
   });
 
-  // Sort alphabetically by cleaned-up sortKey
   subs.sort((a, b) => a.sortKey.localeCompare(b.sortKey, undefined, { sensitivity: "base" }));
 
-  // Append in sorted order
   for (const { id, name } of subs) {
     if (!existing.has(id)) {
       const opt = document.createElement("option");
       opt.value = id;
-      opt.textContent = name; // keep original name for display
+      opt.textContent = name;
       selectEl.appendChild(opt);
     }
   }
@@ -912,17 +1004,14 @@ function buildSubcontractorOptions(selectEl) {
 // Try to select by recordId or by display name (case-insensitive)
 function selectOptionByIdOrName(selectEl, val) {
   if (!selectEl) return;
-  // Reset to None by default
   selectEl.value = "";
   if (!val) return;
 
-  // If it's a recordId, try direct match
   if (typeof val === "string" && /^rec[A-Za-z0-9]{14}$/.test(val)) {
     const found = [...selectEl.options].some(o => o.value === val);
     if (found) { selectEl.value = val; return; }
   }
 
-  // Otherwise, try by name
   const name = (typeof val === "string") ? val : String(val);
   const lower = name.toLowerCase().trim();
   for (const o of selectEl.options) {
@@ -940,7 +1029,7 @@ function closeDecisionSheet(){
   const disputeBtn = document.getElementById("confirmDisputeBtn");
 
   sheet.classList.remove("open");
-  sheet.classList.remove("dispute-mode"); // ← add this
+  sheet.classList.remove("dispute-mode");
   if (backdrop) backdrop.classList.remove("show");
 
   approveBtn.classList.remove("attn");
@@ -955,6 +1044,9 @@ function closeDecisionSheet(){
     if (disputeVendorAmountInput) disputeVendorAmountInput.value = "";
     if (disputeSubSelect) disputeSubSelect.value = "";
     if (disputeSub2Select) disputeSub2Select.value = "";
+    // Re-enable inputs
+    if (disputeAmountInput) disputeAmountInput.disabled = false;
+    if (disputeVendorAmountInput) disputeVendorAmountInput.disabled = false;
   }
 
   pendingDecision = null;
@@ -982,77 +1074,79 @@ async function confirmDecision(decision) {
   if (decision === "Dispute") {
     console.log("📝 Dispute selected, validating amounts...");
 
-    // Amount (required; editable) - subcontractor
-    const amountRaw = disputeAmountInput?.value.trim();
-    console.log("Sub Amount Raw:", amountRaw);
-
-    if (!amountRaw) {
-      alert("Please enter the Backcharge Amount (subcontractor).");
-      disputeAmountInput.focus();
-      return;
-    }
-    const parsed = parseCurrencyInput(amountRaw);
-    console.log("Parsed Sub Amount:", parsed);
-
-    if (parsed == null || isNaN(parsed) || parsed < 0) {
-      alert("Please enter a valid positive Backcharge Amount (e.g., 1250.00).");
-      disputeAmountInput.focus();
-      return;
-    }
-    fieldsToPatch["Backcharge Amount"] = parsed;
-
-    // Secondary sub amount (optional)
     const rec = getRecordById(pendingRecordId);
+
+    // Read UI state
+    const primaryRowEl = disputeFormContainer.querySelector("#bf-primary-sub-row");
+    const vendorRowEl  = disputeFormContainer.querySelector("#bf-vendor-row");
+    const isPrimaryVisible = primaryRowEl && !primaryRowEl.classList.contains("bf-hidden");
+    const isVendorVisible  = vendorRowEl  && !vendorRowEl.classList.contains("bf-hidden");
+
+    // Sub selection
+    const selectedPrimaryId = disputeSubSelect?.value || "";
+    const selectedSecondaryId = disputeSub2Select?.value || "";
+
+    // Only ONE main amount field per record → "Backcharge Amount"
+    if (isPrimaryVisible && selectedPrimaryId) {
+      const amountRaw = disputeAmountInput?.value?.trim() || "";
+      if (!amountRaw) {
+        alert("Please enter the Backcharge Amount for the subcontractor, or choose Vendor mode.");
+        disputeAmountInput?.focus();
+        return;
+      }
+      const parsed = parseCurrencyInput(amountRaw);
+      if (parsed == null || isNaN(parsed) || parsed < 0) {
+        alert("Please enter a valid positive amount (e.g., 1250.00).");
+        disputeAmountInput?.focus();
+        return;
+      }
+      fieldsToPatch["Backcharge Amount"] = parsed;
+    } else if (isVendorVisible) {
+      const vendorAmountRaw = disputeVendorAmountInput?.value?.trim() || "";
+      if (!vendorAmountRaw) {
+        fieldsToPatch["Backcharge Amount"] = null;
+      } else {
+        const vParsed = parseCurrencyInput(vendorAmountRaw);
+        if (vParsed == null || isNaN(vParsed) || vParsed < 0) {
+          alert("Please enter a valid positive amount for the vendor (e.g., 900.00), or clear it.");
+          disputeVendorAmountInput?.focus();
+          return;
+        }
+        fieldsToPatch["Backcharge Amount"] = vParsed;
+      }
+    } else {
+      fieldsToPatch["Backcharge Amount"] = null;
+    }
+
+    // Secondary sub amount (optional; separate field, if present in base)
     const secAmtField = pickFieldName(rec?.fields || {}, [
       "Amount to backcharge secondary sub",
       "Amount to Backcharge Secondary Sub",
       "Secondary Backcharge Amount"
     ]);
-    const secAmtRaw = disputeAmount2Input?.value.trim();
-    console.log("Secondary Amount Raw:", secAmtRaw, "Field Name:", secAmtField);
-
+    const secAmtRaw = disputeAmount2Input?.value?.trim() || "";
     if (secAmtRaw) {
       const sParsed = parseCurrencyInput(secAmtRaw);
-      console.log("Parsed Secondary Amount:", sParsed);
-
       if (sParsed == null || isNaN(sParsed) || sParsed < 0) {
         alert("Please enter a valid positive Secondary Sub Amount (e.g., 900.00), or clear it.");
-        disputeAmount2Input.focus();
+        disputeAmount2Input?.focus();
         return;
       }
       fieldsToPatch[secAmtField] = sParsed;
-    } else {
-      // If cleared, set to null to clear the numeric value
+    } else if (secAmtField) {
       fieldsToPatch[secAmtField] = null;
     }
 
-    // Vendor amount (optional)
-    const vendorAmountRaw = disputeVendorAmountInput?.value.trim();
-    console.log("Vendor Amount Raw:", vendorAmountRaw);
-
-    if (vendorAmountRaw) {
-      const vParsed = parseCurrencyInput(vendorAmountRaw);
-      console.log("Parsed Vendor Amount:", vParsed);
-
-      if (vParsed == null || isNaN(vParsed) || vParsed < 0) {
-        alert("Please enter a valid positive dollar amount for vendor backcharge (e.g., 900.00), or clear it.");
-        disputeVendorAmountInput.focus();
-        return;
-      }
-      fieldsToPatch["Backcharge Amount"] = vParsed;
-    } else {
-      fieldsToPatch["Backcharge Amount"] = null;
-    }
-
-    // 🔽 NEW: Read selected subcontractors from dropdowns and patch links
-    const selectedPrimaryId = disputeSubSelect?.value || "";
-
-    // Primary subcontractor link
+    // Patch subcontractor links from selections
     fieldsToPatch["Subcontractor to Backcharge"] = selectedPrimaryId ? [selectedPrimaryId] : [];
-
-    // Secondary subcontractor link – find the proper field casing used by the table
-   
-    
+    const secondarySubLinkField = pickFieldName(rec?.fields || {}, [
+      "Secondary Subcontractor to backcharge",
+      "Secondary Subcontractor to Backcharge",
+      "Secondary Subcontractor"
+    ]);
+    if (secondarySubLinkField) {
+      fieldsToPatch[secondarySubLinkField] = selectedSecondaryId ? [selectedSecondaryId] : [];
+    }
   }
 
   console.log("📤 PATCH payload prepared:", fieldsToPatch);
