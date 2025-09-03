@@ -45,9 +45,19 @@ let disputeAmount2Input = null;        // editable amount for secondary sub
 let disputeVendorDisplay = null;        // read-only vendor(s)
 let disputeVendorAmountInput = null;    // editable vendor amount
 
+let disputeSubSelect = null;            // primary subcontractor <select>
+let disputeSub2Select = null;  
+
 /* =========================
    UTIL / UI HELPERS
 ========================= */
+// Returns true only if arr is a non-empty array of Airtable record IDs (recXXXXXXXXXXXXXX)
+function looksLikeLinkedIds(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return false;
+  const recPattern = /^rec[A-Za-z0-9]{14}$/;
+  return arr.every(v => typeof v === "string" && recPattern.test(v));
+}
+
 function asLinkedIds(val) {
   return Array.isArray(val) ? val.filter(v => typeof v === "string") : [];
 }
