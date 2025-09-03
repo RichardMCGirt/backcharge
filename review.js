@@ -11,7 +11,12 @@ const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU"; // “Client Name”
 const TECH_TABLE          = "tblj6Fp0rvN7QyjRv"; // “Full Name”
 const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK"; // “Office Name”
 const VENDOR_TABLE        = "tbl0JQXyAizkNZF5s"; // Vendor table used by "Vendor to backcharge"
+const MIRROR_TABLE_ID = "tblg98QfBxRd6uivq";
+const MIRROR_SOURCE_FIELD_NAME = "Source Record ID"; // exact name in mirror table
+const MIRROR_FIELD_TECH_NAME   = "Field Technician"; // mirror field name
+const MIRROR_FIELD_TECH_WRITABLE = false;            // set to true ONLY if mirror field is plain text
 
+// Helper: check that every element is a
 // Cache & State
 const recordCache = {};            // `${tableId}_${recId}` -> displayName
 const tableRecords = {};           // tableId -> full records[]
@@ -43,6 +48,10 @@ let disputeVendorAmountInput = null;    // editable vendor amount
 /* =========================
    UTIL / UI HELPERS
 ========================= */
+function asLinkedIds(val) {
+  return Array.isArray(val) ? val.filter(v => typeof v === "string") : [];
+}
+
 function showToast(message) {
   const toast = document.getElementById("toast");
   toast.textContent = message;
@@ -188,6 +197,141 @@ async function preloadLinkedTables() {
 function getCachedRecord(tableId, recordId) {
   return recordCache[`${tableId}_${recordId}`] || recordId;
 }
+async function upsertMirrorFromMain(mainRec) {
+  console.log("➡️ upsertMirrorFromMain called", { mainRecId: mainRec?.id });
+
+  const src = mainRec?.fields || {};
+  const backchargeApplied = !!src["Backcharge Applied"];
+  const backchargeStatus = backchargeApplied ? ["Applied"] : ["Unapplied"];
+
+  const subLinks      = asLinkedIds(src["Subcontractor to Backcharge"]);
+  const customerLinks = asLinkedIds(src["Customer"]);
+  const techNames     = getTechNamesFromRecord(mainRec).join(", ");
+
+  console.log("📋 Source snapshot:", {
+    jobName: src["Job Name"],
+    issue: src["Issue"],
+    backchargeAmount: src["Backcharge Amount"],
+    backchargeApplied,
+    subLinks,
+    customerLinks,
+    techNames
+  });
+
+  // --- 1) Find existing mirror row by Source Record ID ---
+  const filter = `({${MIRROR_SOURCE_FIELD_NAME}}='${mainRec.id}')`;
+  const findUrl = `https://api.airtable.com/v0/${BASE_ID}/${MIRROR_TABLE_ID}?filterByFormula=${encodeURIComponent(filter)}&pageSize=1`;
+  console.log("🌐 Mirror lookup:", findUrl);
+
+  let existing = null;
+  try {
+    const findRes = await fetch(findUrl, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` }});
+    const found = await findRes.json();
+    if (!findRes.ok) {
+      console.warn("⚠️ Mirror lookup failed:", found);
+    } else {
+      existing = found.records?.[0] || null;
+      console.log("🔎 Mirror lookup result:", found);
+    }
+  } catch (e) {
+    console.warn("⚠️ Mirror lookup exception:", e);
+  }
+
+  // Utility: PATCH a single field (or a few) with detailed logs
+  async function patchMirror(mirrorId, fieldsObj, label) {
+    const url = `https://api.airtable.com/v0/${BASE_ID}/${MIRROR_TABLE_ID}/${mirrorId}`;
+    const body = { fields: fieldsObj, typecast: true };
+    console.log(`✏️ Patching mirror (${label})`, body);
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      console.error(`❌ Patch failed (${label})`, json);
+      return { ok: false, json };
+    }
+    console.log(`✅ Patch ok (${label})`, json);
+    return { ok: true, json };
+  }
+
+  // --- 2) Create if missing, with SAFE baseline fields only ---
+  let mirrorId = existing?.id || null;
+  if (!mirrorId) {
+    const createUrl = `https://api.airtable.com/v0/${BASE_ID}/${MIRROR_TABLE_ID}`;
+    const createPayload = {
+      fields: {
+        [MIRROR_SOURCE_FIELD_NAME]: mainRec.id,
+        "Backcharge Status": backchargeStatus
+      },
+      typecast: true
+    };
+    console.log("➕ Creating mirror (baseline)", createPayload);
+
+    const createRes = await fetch(createUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(createPayload)
+    });
+    const createJson = await createRes.json();
+    if (!createRes.ok) {
+      console.error("❌ Mirror create failed (baseline)", createJson);
+      console.warn("🧪 Check that the mirror has a text field named EXACTLY:", MIRROR_SOURCE_FIELD_NAME);
+      return; // stop here; schema issue
+    }
+    console.log("✅ Mirror created (baseline)", createJson);
+    mirrorId = createJson.id;
+  } else {
+    // Ensure status is current each time
+    await patchMirror(mirrorId, { "Backcharge Status": backchargeStatus }, "Backcharge Status");
+  }
+
+  // --- 3) Patch plain (non-linked) fields next ---
+  const plainFields = {
+    "Job Name": src["Job Name"] || "",
+    "Reason for Backcharge": src["Issue"] || "",
+    "Backcharge Amount": (src["Backcharge Amount"] == null ? null : src["Backcharge Amount"]),
+  };
+  if (MIRROR_FIELD_TECH_WRITABLE) {
+    plainFields[MIRROR_FIELD_TECH_NAME] = techNames;
+  } else {
+    console.log(`ℹ️ Skipping write to "${MIRROR_FIELD_TECH_NAME}" (likely lookup).`);
+  }
+  await patchMirror(mirrorId, plainFields, "plain fields");
+
+  // --- 4) Patch each linked field individually to pinpoint issues ---
+
+  // Customer
+  if (looksLikeLinkedIds(customerLinks)) {
+    const { ok } = await patchMirror(mirrorId, { "Customer": customerLinks }, "Customer (links)");
+    if (!ok) {
+      console.warn("👀 Customer links rejected. Verify mirror field 'Customer' is a Link to the SAME Customer table.");
+    }
+  } else {
+    console.warn("👀 Customer links not patched (not a rec[] array):", customerLinks);
+  }
+
+  // Subcontractor to Backcharge
+  if (looksLikeLinkedIds(subLinks)) {
+    const { ok } = await patchMirror(mirrorId, { "Subcontractor to Backcharge": subLinks }, "Subcontractor (links)");
+    if (!ok) {
+      console.warn("👀 Subcontractor links rejected. Verify mirror field 'Subcontractor to Backcharge' links to tblgsUP8po27WX7Hb.");
+    }
+  } else {
+    console.warn("👀 Subcontractor links not patched (not a rec[] array):", subLinks);
+  }
+
+  console.log("🏁 upsertMirrorFromMain finished", { mirrorId });
+}
+
+
 
 /* =========================
    URL PARAM HELPERS (Deep-link filters)
@@ -548,7 +692,6 @@ function renderReviews() {
   });
 }
 
-
 /* =========================
    SWIPE HANDLERS
 ========================= */
@@ -659,7 +802,6 @@ function attachSwipeHandlers(el, onCommit){
     deltaX = 0;
   });
 }
-
 
 /* =========================
    PHOTO MODAL
@@ -900,10 +1042,6 @@ function ensureBackchargeFormStyles() {
   document.head.appendChild(style);
 }
 
-
-
-
-
 /* =========================
    DISPUTE FORM (grid-aligned: who-to-backcharge | amount)
 ========================= */
@@ -916,30 +1054,26 @@ function ensureDisputeForm(sheet) {
     disputeFormContainer.style.marginTop = "12px";
     disputeFormContainer.style.display = "none";
 
-    // Build grid with aligned rows:
-    // Row 1: Subcontractor | Amount (sub)
-    // Row 2: Secondary Subcontractor | Amount (secondary)
-    // Row 3: Vendor | Amount (vendor)
-    // Row 4: Reason (full width)
+
     disputeFormContainer.innerHTML = `
       <div class="bf-grid">
 
         <!-- Row: Subcontractor -->
-        <label for="disputeSubDisplay">Primary Subcontractor to backcharge</label>
+        <label for="disputeSubDisplay">Primary Subcontractor to Backcharge</label>
         <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
 
         <div id="disputeSubDisplay" class="bf-display" aria-live="polite"></div>
         <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
 
         <!-- Row: Secondary Subcontractor -->
-        <label for="disputeSub2Display">Secondary Subcontractor to backcharge</label>
+        <label for="disputeSub2Display">Secondary Subcontractor to Backcharge</label>
         <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
 
         <div id="disputeSub2Display" class="bf-display" aria-live="polite"></div>
         <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="$0.00" />
 
         <!-- Row: Vendor -->
-        <label for="disputeVendorDisplay">Vendor to backcharge</label>
+        <label for="disputeVendorDisplay">Vendor to Backcharge</label>
         <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
 
         <div id="disputeVendorDisplay" class="bf-display" aria-live="polite"></div>
@@ -1138,19 +1272,30 @@ function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
    PATCH TO AIRTABLE
 ========================= */
 async function confirmDecision(decision) {
-  if (!pendingRecordId || !decision) return;
+  if (!pendingRecordId || !decision) {
+    console.warn("⚠️ confirmDecision called without recordId or decision", { pendingRecordId, decision });
+    return;
+  }
+
+  console.log("➡️ confirmDecision start", { recordId: pendingRecordId, decision });
 
   const fieldsToPatch = { "Approve or Dispute": decision };
 
   if (decision === "Dispute") {
+    console.log("📝 Dispute selected, validating amounts...");
+
     // Amount (required; editable) - subcontractor
     const amountRaw = disputeAmountInput?.value.trim();
+    console.log("Sub Amount Raw:", amountRaw);
+
     if (!amountRaw) {
       alert("Please enter the Backcharge Amount (subcontractor).");
       disputeAmountInput.focus();
       return;
     }
     const parsed = parseCurrencyInput(amountRaw);
+    console.log("Parsed Sub Amount:", parsed);
+
     if (parsed == null || isNaN(parsed) || parsed < 0) {
       alert("Please enter a valid positive Backcharge Amount (e.g., 1250.00).");
       disputeAmountInput.focus();
@@ -1158,7 +1303,7 @@ async function confirmDecision(decision) {
     }
     fieldsToPatch["Backcharge Amount"] = parsed;
 
-    // NEW: Secondary sub amount (optional; patch if provided)
+    // Secondary sub amount (optional)
     const rec = getRecordById(pendingRecordId);
     const secAmtField = pickFieldName(rec?.fields || {}, [
       "Amount to backcharge secondary sub",
@@ -1166,8 +1311,12 @@ async function confirmDecision(decision) {
       "Secondary Backcharge Amount"
     ]);
     const secAmtRaw = disputeAmount2Input?.value.trim();
+    console.log("Secondary Amount Raw:", secAmtRaw, "Field Name:", secAmtField);
+
     if (secAmtRaw) {
       const sParsed = parseCurrencyInput(secAmtRaw);
+      console.log("Parsed Secondary Amount:", sParsed);
+
       if (sParsed == null || isNaN(sParsed) || sParsed < 0) {
         alert("Please enter a valid positive Secondary Sub Amount (e.g., 900.00), or clear it.");
         disputeAmount2Input.focus();
@@ -1176,10 +1325,14 @@ async function confirmDecision(decision) {
       fieldsToPatch[secAmtField] = sParsed;
     }
 
-    // NEW: Vendor amount (optional; patch if provided)
+    // Vendor amount (optional)
     const vendorAmountRaw = disputeVendorAmountInput?.value.trim();
+    console.log("Vendor Amount Raw:", vendorAmountRaw);
+
     if (vendorAmountRaw) {
       const vParsed = parseCurrencyInput(vendorAmountRaw);
+      console.log("Parsed Vendor Amount:", vParsed);
+
       if (vParsed == null || isNaN(vParsed) || vParsed < 0) {
         alert("Please enter a valid positive dollar amount for vendor backcharge (e.g., 900.00), or clear it.");
         disputeVendorAmountInput.focus();
@@ -1187,12 +1340,16 @@ async function confirmDecision(decision) {
       }
       fieldsToPatch["Amount to backcharge vendor"] = vParsed;
     }
-    // NOTE: Linked selections remain read-only in this sheet.
   }
+
+  console.log("📤 PATCH payload prepared:", fieldsToPatch);
 
   showLoading();
   try {
-    const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`, {
+    const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`;
+    console.log("🌐 PATCH request to:", url);
+
+    const res = await fetch(url, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${AIRTABLE_API_KEY}`,
@@ -1203,9 +1360,28 @@ async function confirmDecision(decision) {
 
     if (!res.ok) {
       const error = await res.json();
-      console.error("❌ Airtable error:", error);
+      console.error("❌ Failed to update record:", error);
       alert(`Failed to update record: ${error.error?.message || JSON.stringify(error)}`);
       return;
+    }
+
+    const updated = await res.json();
+    console.log("✅ Record successfully updated:", updated);
+
+    // 🔁 NEW: create/update the mirror row
+    try {
+      const getUrl = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${pendingRecordId}`;
+      console.log("🌐 Refetching main for mirror upsert:", getUrl);
+      const getRes = await fetch(getUrl, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` }});
+      if (!getRes.ok) {
+        console.warn("⚠️ Failed to refetch main record for mirror upsert:", await getRes.text());
+      } else {
+        const updatedMain = await getRes.json();
+        console.log("🔁 Upserting mirror from main:", updatedMain?.id);
+        await upsertMirrorFromMain(updatedMain);
+      }
+    } catch (e) {
+      console.warn("🔥 Mirror upsert error:", e);
     }
 
     vibrate(30);
@@ -1213,12 +1389,19 @@ async function confirmDecision(decision) {
     const idFrag = (pendingRecordIdNumber !== null && pendingRecordIdNumber !== undefined) ? `ID #${pendingRecordIdNumber} – ` : "";
     showToast(`${idFrag}${pendingRecordName || "Record"} marked as ${decision}`);
 
+    console.log("🔄 Refreshing backcharges...");
     await fetchBackcharges();
+  } catch (err) {
+    console.error("🔥 Exception in confirmDecision:", err);
   } finally {
     hideLoading();
     closeDecisionSheet();
+    console.log("🏁 confirmDecision finished");
   }
 }
+
+
+
 
 /* =========================
    FILTER DROPDOWNS
