@@ -883,12 +883,7 @@ function openDecisionSheet(recordId, jobName, decision) {
     const originalVendorAmount = rec?.fields?.["Amount to backcharge vendor"];
 
     // NEW: Secondary amount (handle capitalization variants)
-    const secAmtField = pickFieldName(rec?.fields || {}, [
-      "Amount to backcharge secondary sub",
-      "Amount to Backcharge Secondary Sub",
-      "Secondary Backcharge Amount"
-    ]);
-    const originalSecondaryAmount = rec?.fields?.[secAmtField];
+   
 
     disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
 
@@ -898,11 +893,7 @@ function openDecisionSheet(recordId, jobName, decision) {
     } else {
       disputeAmountInput.value = formatUSD(originalAmount);
     }
-    if (originalSecondaryAmount == null || originalSecondaryAmount === "") {
-      disputeAmount2Input.value = "";
-    } else {
-      disputeAmount2Input.value = formatUSD(originalSecondaryAmount);
-    }
+  
     if (originalVendorAmount == null || originalVendorAmount === "") {
       disputeVendorAmountInput.value = "";
     } else {
