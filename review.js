@@ -2,7 +2,7 @@
    CONFIG / CONSTANTS
 ========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
-const BASE_ID = "appQDdkj6ydqUaUkE";
+const BASE_ID = "appzjTeapVOPpVg87";
 const TABLE_ID = "tblg98QfBxRd6uivq";
 
 // Linked tables
@@ -350,8 +350,16 @@ async function fetchBackcharges() {
   let offset = null;
 
   do {
-    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=OR({Approved or Dispute}="", NOT({Approved or Dispute}))`;
-    if (offset) url += `&offset=${offset}`;
+let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=AND(
+  {Type of Backcharge} = 'Builder Issued Backcharge',
+  OR(
+    {Approved or Dispute} = "",
+    NOT({Approved or Dispute})
+  )
+)`;
+
+if (offset) url += `&offset=${offset}`;
+
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
     if (!res.ok) break;
