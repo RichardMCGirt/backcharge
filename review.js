@@ -356,8 +356,7 @@ async function fetchBackcharges() {
   OR(
     {Approved or Dispute} = "",
     NOT({Approved or Dispute})
-  ),
-  {Vendor Brick and Mortar Location} = ""
+  )
 )`;
 
     if (offset) url += `&offset=${offset}`;
