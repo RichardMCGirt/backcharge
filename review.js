@@ -10,7 +10,7 @@ const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb"; // “Subcontractor Company Nam
 const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU"; // “Client Name”
 const TECH_TABLE          = "tblj6Fp0rvN7QyjRv"; // “Full Name”
 const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK"; // “Office Name”
-const VENDOR_TABLE        = "tbl0JQXyAizkNZF5s"; // Vendor table used by "Vendor to backcharge"
+const VENDOR_TABLE        = "tblp77wpnsiIjJLGh"; // Vendor table used by "Vendor to backcharge"
 
 
 // Helper: check that every element is a
@@ -875,7 +875,7 @@ function ensureBackchargeFormStyles() {
       font-weight: 600;
       align-self: center;
       font-size: 14px;
-      color: #0f172a;
+      color: white;
     }
     #disputeFormContainer .bf-amount-label {
       text-align: right;
@@ -1171,7 +1171,7 @@ async function confirmDecision(decision) {
 
   // Patch link fields
   fieldsToPatch["Subcontractor to Backcharge"] = selectedSubId ? [selectedSubId] : [];
-  fieldsToPatch["Vendor to backcharge"]        = selectedVendorId ? [selectedVendorId] : [];
+  fieldsToPatch["Vendor Brick and Mortar Location"]        = selectedVendorId ? [selectedVendorId] : [];
 
   // Patch amount (single field)
   fieldsToPatch["Backcharge Amount"] = amountToSave == null ? null : amountToSave;
