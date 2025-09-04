@@ -904,8 +904,7 @@ function ensureBackchargeFormStyles() {
       line-height: 1.3;
     }
     #disputeFormContainer .bf-reason {
-      grid-column: 1 / -1;
-      grid-template-columns: 80px 1fr;
+  
       gap: 8px;
       align-items: start;
       display: grid;
