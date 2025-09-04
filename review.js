@@ -876,7 +876,7 @@ function ensureBackchargeFormStyles() {
       font-weight: 600;
       align-self: center;
       font-size: 14px;
-      color: #0f172a;
+      color: white;
     }
     #disputeFormContainer .bf-amount-label {
       text-align: right;
