@@ -875,7 +875,7 @@ function ensureBackchargeFormStyles() {
       font-weight: 600;
       align-self: center;
       font-size: 14px;
-      color: white;
+      color: #0f172a;
     }
     #disputeFormContainer .bf-amount-label {
       text-align: right;
@@ -904,17 +904,20 @@ function ensureBackchargeFormStyles() {
       line-height: 1.3;
     }
     #disputeFormContainer .bf-reason {
-  
+      grid-template-columns: 80px 1fr;
       gap: 8px;
       align-items: start;
-      display: grid;
     }
     /* group rows for show/hide */
     #disputeFormContainer .bf-row { display: contents; }
     #disputeFormContainer .bf-hidden { display: none !important; }
+
+    /* hide vendor amount input */
+    #disputeFormContainer #disputeVendorAmountInput { display: none !important; }
   `;
   document.head.appendChild(style);
 }
+
 
 /* =========================
    DISPUTE/APPROVE FORM (grid-aligned)

@@ -375,16 +375,7 @@ img, video {
 .sheet .actions button.dispute.attn{
   animation: pulseDispute 1.2s ease-in-out infinite;
 }
-@keyframes pulseApprove{
-  0%   { box-shadow: 0 0 0 0 rgba(52,199,89,.45); }
-  70%  { box-shadow: 0 0 0 14px rgba(52,199,89,0); }
-  100% { box-shadow: 0 0 0 0 rgba(52,199,89,0); }
-}
-@keyframes pulseDispute{
-  0%   { box-shadow: 0 0 0 0 rgba(255,59,48,.45); }
-  70%  { box-shadow: 0 0 0 14px rgba(255,59,48,0); }
-  100% { box-shadow: 0 0 0 0 rgba(255,59,48,0); }
-}
+
 
 /* Slightly bolder header/message */
 .sheet h3{ font-size: 18px; letter-spacing: .2px; }
