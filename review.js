@@ -30,7 +30,7 @@ let lastActiveCardId = null;
 
 // Dispute form elements (created once, reused)
 let disputeFormContainer = null;
-let disputeReasonDisplay = null;   // read-only original reason
+let disputeReasonInput = null;     // editable original reason
 
 // Amount inputs (only one is used per record; both map to Backcharge Amount)
 let disputeAmountInput = null;          // subcontractor amount
@@ -105,7 +105,6 @@ function pickFieldName(obj, candidates) {
   return candidates[0];
 }
 
-// Normalizes field values that might be (a) array of record IDs, (b) array of strings, or (c) a single string.
 // If tableId is provided, any array items that look like record IDs are resolved via getCachedRecord(tableId, id).
 function normalizeNames(fieldVal, tableId = null) {
   if (Array.isArray(fieldVal)) {
@@ -132,15 +131,38 @@ function getLinkedRecords(tableId, fieldVal) {
   const arr = Array.isArray(fieldVal)
     ? fieldVal
     : (typeof fieldVal === "string" ? fieldVal.split(",").map(s => s.trim()).filter(Boolean) : []);
+
   return arr
     .map(v => {
       if (typeof v === "string" && /^rec[A-Za-z0-9]{14}$/.test(v)) {
-        return { id: v, name: getCachedRecord(tableId, v) };
+        // Try cache first
+        let name = getCachedRecord(tableId, v);
+
+        // If cache still holds an ID, try to resolve from preloaded tableRecords
+        if (!name || /^rec[A-Za-z0-9]{14}$/.test(name)) {
+          const list = tableRecords[tableId] || [];
+          const hit = list.find(r => r.id === v);
+          if (hit && hit.fields) {
+            name =
+              hit.fields["Name"] ||
+              hit.fields["Vendor"] ||
+              hit.fields["Company"] ||
+              hit.fields["Company Name"] ||
+              hit.fields["Display Name"] ||
+              hit.fields["Name"] ||
+              // fall back to first non-empty string in the record
+              Object.values(hit.fields).find(x => typeof x === "string" && x.trim().length) ||
+              v;
+            recordCache[`${tableId}_${v}`] = name;
+          }
+        }
+        return { id: v, name: String(name) };
       }
       return { id: null, name: String(v) };
     })
     .filter(x => x.name);
 }
+
 
 // Convenience getters
 function getTechNamesFromRecord(rec) {
@@ -176,22 +198,41 @@ async function fetchAllRecords(tableId, keyFields) {
   // Build simple display cache: recordId → displayName
   for (const rec of records) {
     let displayName = rec.id;
+
+    // 1) Try preferred keys
     for (const field of keyFields) {
-      if (rec.fields[field]) {
-        displayName = rec.fields[field];
+      if (rec.fields && typeof rec.fields[field] === "string" && rec.fields[field].trim().length) {
+        displayName = rec.fields[field].trim();
         break;
       }
     }
+
+    // 2) If still an ID, try first non-empty string field on the record
+    if (displayName === rec.id && rec.fields) {
+      const firstString = Object.values(rec.fields).find(v => typeof v === "string" && v.trim().length);
+      if (firstString) displayName = firstString.trim();
+      else {
+        // Or first string inside an array field
+        const firstArrayString = Object.values(rec.fields).find(v =>
+          Array.isArray(v) && v.length && typeof v[0] === "string" && v[0].trim().length
+        );
+        if (firstArrayString) displayName = firstArrayString[0].trim();
+      }
+    }
+
     recordCache[`${tableId}_${rec.id}`] = displayName;
   }
 }
+
 
 async function preloadLinkedTables() {
   await fetchAllRecords(SUBCONTRACTOR_TABLE, ["Subcontractor Company Name", "Name"]);
   await fetchAllRecords(CUSTOMER_TABLE, ["Client Name", "Name"]);
   await fetchAllRecords(TECH_TABLE, ["Full Name", "Name"]);
   await fetchAllRecords(BRANCH_TABLE, ["Office Name", "Name"]); 
-  await fetchAllRecords(VENDOR_TABLE, ["Vendor Name", "Name", "Company", "Company Name"]);
+await fetchAllRecords(VENDOR_TABLE, [
+  "Vendor Name", "Vendor", "Company", "Name", "Display Name", "Name"
+]);
 }
 
 function getCachedRecord(tableId, recordId) {
@@ -400,46 +441,44 @@ function renderReviews() {
   records.forEach(record => {
     const fields = record.fields;
     const jobName = fields["Job Name"] || "";
-    const reason = fields["Reason for Backcharge"] || "";
+    const reasonFieldName = pickFieldName(fields, [ "Reason for Backcharge"]);
+    const reason = fields[reasonFieldName] || "";
     const idNumber = fields["ID Number"];
 
     // Backcharge (one field used for either sub or vendor)
-let backchargeAmount = fields["Backcharge Amount"];
-let amountChip = "";
-if (backchargeAmount !== "" && backchargeAmount != null) {
-  // detect vendor via link field OR non-empty "Vendor Brick and Mortar Location"
-  const vendorFieldName = pickFieldName(fields, [
-    "Vendor to backcharge",
-    "Vendor to Backcharge",
-    "Vendor"
-  ]);
-  const vendorLocationFieldName = pickFieldName(fields, [
-    "Vendor Brick and Mortar Location",
-    "Vendor Brick & Mortar Location",
-    "Vendor brick and mortar location",
-    "Vendor Location"
-  ]);
+    let backchargeAmount = fields["Backcharge Amount"];
+    let amountChip = "";
+    if (backchargeAmount !== "" && backchargeAmount != null) {
+      // detect vendor via link field OR non-empty "Vendor Brick and Mortar Location"
+      const vendorFieldName = pickFieldName(fields, [
 
-  const vendorRaw = fields[vendorFieldName];
-  const vendorLocRaw = fields[vendorLocationFieldName];
+        "Vendor"
+      ]);
+      const vendorLocationFieldName = pickFieldName(fields, [
+      
+        "Vendor"
+      ]);
 
-  const hasVendor =
-    Array.isArray(vendorRaw) ? vendorRaw.length > 0 : !!vendorRaw;
+      const vendorRaw = fields[vendorFieldName];
+      const vendorLocRaw = fields[vendorLocationFieldName];
 
-  const hasVendorLocation = Array.isArray(vendorLocRaw)
-    ? vendorLocRaw.length > 0
-    : (typeof vendorLocRaw === "string" ? vendorLocRaw.trim().length > 0 : !!vendorLocRaw);
+      const hasVendor =
+        Array.isArray(vendorRaw) ? vendorRaw.length > 0 : !!vendorRaw;
 
-  const label = (hasVendor || hasVendorLocation)
-    ? "Vendor to backcharge"
-    : "Subcontractor Backcharge";
+      const hasVendorLocation = Array.isArray(vendorLocRaw)
+        ? vendorLocRaw.length > 0
+        : (typeof vendorLocRaw === "string" ? vendorLocRaw.trim().length > 0 : !!vendorLocRaw);
 
-  const amt = `$${parseFloat(backchargeAmount).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  })}`;
-  amountChip = `<span class="chip">${escapeHtml(label)}: ${escapeHtml(amt)}</span>`;
-}
+      const label = (hasVendor || hasVendorLocation)
+        ? "Vendor to backcharge"
+        : "Subcontractor Backcharge";
+
+      const amt = `$${parseFloat(backchargeAmount).toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      })}`;
+      amountChip = `<span class="chip">${escapeHtml(label)}: ${escapeHtml(amt)}</span>`;
+    }
 
     // NEW: Builder Backcharged Amount (separate field) chip
     let builderBackchargeChip = "";
@@ -500,7 +539,7 @@ if (backchargeAmount !== "" && backchargeAmount != null) {
 </p>
 
       <br>
-      <div class="chips">
+               <div class="chips">
         ${branchChip}
         ${techChip}
         ${customer ? `<span class="chip">Builder: ${escapeHtml(customer)}</span>` : ""}
@@ -509,6 +548,7 @@ if (backchargeAmount !== "" && backchargeAmount != null) {
         ${amountChip}
         ${vendorLinksHtml || ""}
       </div>
+
      ${
   reason || photoCount > 0
     ? `
@@ -702,7 +742,7 @@ function openPhotoModal(photos) {
 }
 
 /* =========================
-   DISPUTE FORM (read-only subcontractor + read-only reason + editable amounts)
+   DISPUTE FORM (read-only subcontractor + editable reason + editable amounts)
 ========================= */
 function openDecisionSheet(recordId, jobName, decision) {
   pendingRecordId = recordId;
@@ -731,19 +771,40 @@ function openDecisionSheet(recordId, jobName, decision) {
   if (decision === "Dispute") {
     disputeFormContainer.style.display = "block";
 
-    // Build options in both selects from SUBCONTRACTOR_TABLE (once per open)
+    // Build subcontractor options once per open
     buildSubcontractorOptions(disputeSubSelect);
 
-    // Prefill read-only vendor(s)
-    const vendorRecs = getLinkedRecords(VENDOR_TABLE, rec?.fields?.["Vendor to backcharge"] || []);
+    // ----- PREFER SHOWING VENDOR LOCATION -----
+    // 1) Pull vendor names (linked) for fallback
+    const vendorRecs = getLinkedRecords(VENDOR_TABLE, rec?.fields?.["Vendor"] || []);
     const vendorNames = vendorRecs.map(v => v.name).join(", ");
-    disputeVendorDisplay.textContent = vendorNames || "(None)";
 
-    // Prefill reason and amounts — both amount inputs reflect the single "Backcharge Amount" field
-    const originalReason = rec?.fields?.["Reason"] || "";
+    // 2) Pull "Vendor Brick and Mortar Location" (or variants)
+    const vendorLocationFieldName = pickFieldName(rec?.fields || {}, [
+  
+      "Vendor"
+    ]);
+    const vendorLocationVal = rec?.fields?.[vendorLocationFieldName];
+    const vendorLocationStr = Array.isArray(vendorLocationVal)
+      ? vendorLocationVal.filter(Boolean).join(", ")
+      : (vendorLocationVal ?? "");
+
+    // 3) Display vendor LOCATION if available; else vendor names
+    const vendorDisplayStr = (vendorLocationStr && String(vendorLocationStr).trim())
+      ? String(vendorLocationStr)
+      : vendorNames;
+
+    disputeVendorDisplay.textContent = vendorDisplayStr || "(None)";
+
+    // Prefill reason and amount (single "Backcharge Amount" field)
+    const reasonFieldName = pickFieldName(rec?.fields || {}, ["Reason for dispute"]);
+    const originalReason = rec?.fields?.[reasonFieldName] || "";
     const originalBackcharge = rec?.fields?.["Backcharge Amount"];
 
-    disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
+    if (disputeReasonInput) {
+      disputeReasonInput.value = originalReason || "";
+      disputeReasonInput.placeholder = "(No reason on record)";
+    }
 
     if (originalBackcharge == null || originalBackcharge === "") {
       disputeAmountInput.value = "";
@@ -754,33 +815,40 @@ function openDecisionSheet(recordId, jobName, decision) {
       disputeVendorAmountInput.value = fmt;
     }
 
-    // Prefill selects with current linked subs (supports ID or Name values)
+    // Prefill subcontractor select (if any)
     const primVal = (Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) ? rec.fields["Subcontractor to Backcharge"][0] : null);
     selectOptionByIdOrName(disputeSubSelect, primVal);
 
-    // Decide which row to show: show either primary sub row OR vendor row
+    // Elements for show/hide
     const primaryRowEl = disputeFormContainer.querySelector("#bf-primary-sub-row");
     const vendorRowEl  = disputeFormContainer.querySelector("#bf-vendor-row");
 
-    const hasVendor = vendorRecs.length > 0;
+    // Determine presence
+    const hasVendorOrLocation = (vendorDisplayStr && vendorDisplayStr.trim().length > 0);
     const hasPrimarySub = Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) && rec.fields["Subcontractor to Backcharge"].length > 0;
+
+    // If a vendor (or location) exists, FORCE vendor mode (avoid empty subcontractor)
+    if (hasVendorOrLocation) {
+      if (disputeSubSelect) disputeSubSelect.value = ""; // clear selection so we don't accidentally show sub row
+    }
 
     const updateAmountMode = () => {
       const subSelected = !!(disputeSubSelect?.value);
-      if (subSelected) {
-        // Use subcontractor amount
+
+      if (subSelected && !hasVendorOrLocation) {
+        // Subcontractor-only scenario
         primaryRowEl?.classList.remove("bf-hidden");
         vendorRowEl?.classList.add("bf-hidden");
         if (disputeAmountInput)       { disputeAmountInput.disabled = false; }
         if (disputeVendorAmountInput) { disputeVendorAmountInput.disabled = true; disputeVendorAmountInput.value = ""; }
-      } else if (hasVendor) {
-        // Use vendor amount
+      } else if (hasVendorOrLocation) {
+        // Prefer vendor mode whenever vendor/location exists
         primaryRowEl?.classList.add("bf-hidden");
         vendorRowEl?.classList.remove("bf-hidden");
         if (disputeAmountInput)       { disputeAmountInput.disabled = true; disputeAmountInput.value = ""; }
         if (disputeVendorAmountInput) { disputeVendorAmountInput.disabled = false; }
       } else {
-        // No vendor present and no sub selected → default to subcontractor mode (allow picking)
+        // Nothing selected, no vendor → allow picking subcontractor
         primaryRowEl?.classList.remove("bf-hidden");
         vendorRowEl?.classList.add("bf-hidden");
         if (disputeAmountInput)       { disputeAmountInput.disabled = false; }
@@ -789,20 +857,18 @@ function openDecisionSheet(recordId, jobName, decision) {
     };
 
     // Initial mode on open
-    if (hasPrimarySub) {
-      disputeSubSelect && (disputeSubSelect.value = primVal || disputeSubSelect.value);
-    }
     updateAmountMode();
 
-    // Change handler: selecting a sub toggles visibility between rows
+    // Change handler: selecting a sub only matters when there's no vendor
     if (disputeSubSelect) {
       disputeSubSelect.onchange = updateAmountMode;
     }
 
   } else {
+    // Approve path: reset/hide form
     disputeFormContainer.style.display = "none";
     if (disputeVendorDisplay) disputeVendorDisplay.textContent = "";
-    if (disputeReasonDisplay) disputeReasonDisplay.textContent = "";
+    if (disputeReasonInput) disputeReasonInput.value = "";
     if (disputeAmountInput) disputeAmountInput.value = "";
     if (disputeVendorAmountInput) disputeVendorAmountInput.value = "";
     if (disputeSubSelect) disputeSubSelect.value = "";
@@ -825,6 +891,7 @@ function openDecisionSheet(recordId, jobName, decision) {
 
   document.addEventListener("keydown", onSheetEsc);
 }
+
 
 
 /* =========================
@@ -862,16 +929,24 @@ function ensureBackchargeFormStyles() {
       padding: 8px 10px;
     }
     #disputeFormContainer select,
-    #disputeFormContainer input[type="text"] {
+    #disputeFormContainer input[type="text"],
+    #disputeFormContainer textarea {
       width: 100%;
       border: 1px solid #cbd5e1;
       border-radius: 10px;
       padding: 8px 10px;
       font-size: 14px;
+      box-sizing: border-box;
     }
+    #disputeFormContainer textarea {
+      min-height: 72px;
+      resize: vertical;
+      line-height: 1.3;
+
+    }
+      
     #disputeFormContainer .bf-reason {
-      grid-column: 1 / -1;
-      display: grid;
+     
       grid-template-columns: 80px 1fr;
       gap: 8px;
       align-items: start;
@@ -918,15 +993,14 @@ function ensureDisputeForm(sheet) {
       <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
     </div>
 
-    <!-- Row: Reason (full width) -->
+    <!-- Row: Reason (full width, now EDITABLE) -->
     <div class="bf-reason">
-      <label for="disputeReasonDisplay">Reason</label>
-      <div id="disputeReasonDisplay" class="bf-display" aria-live="polite"></div>
+      <label for="disputeReasonInput">Reason</label>
+      <textarea id="disputeReasonInput" placeholder="(No reason on record)"></textarea>
     </div>
 
   </div>
 `;
-
 
     // Wire references back to your globals
     disputeSubSelect          = disputeFormContainer.querySelector("#disputeSubSelect");
@@ -935,7 +1009,7 @@ function ensureDisputeForm(sheet) {
     disputeVendorDisplay      = disputeFormContainer.querySelector("#disputeVendorDisplay");
     disputeVendorAmountInput  = disputeFormContainer.querySelector("#disputeVendorAmountInput");
 
-    disputeReasonDisplay      = disputeFormContainer.querySelector("#disputeReasonDisplay");
+    disputeReasonInput        = disputeFormContainer.querySelector("#disputeReasonInput");
 
     // Currency formatting UX
     const hookupMoney = (inp) => {
@@ -1029,7 +1103,7 @@ function closeDecisionSheet(){
   if (disputeFormContainer) {
     disputeFormContainer.style.display = "none";
     if (disputeVendorDisplay) disputeVendorDisplay.textContent = "";
-    if (disputeReasonDisplay) disputeReasonDisplay.textContent = "";
+    if (disputeReasonInput) disputeReasonInput.value = "";
     if (disputeAmountInput) disputeAmountInput.value = "";
     if (disputeVendorAmountInput) disputeVendorAmountInput.value = "";
     if (disputeSubSelect) disputeSubSelect.value = "";
@@ -1108,6 +1182,11 @@ async function confirmDecision(decision) {
 
     // Patch subcontractor links from selections
     fieldsToPatch["Subcontractor to Backcharge"] = selectedPrimaryId ? [selectedPrimaryId] : [];
+
+    // Patch edited reason back to Airtable (auto-detect field name)
+    const reasonFieldName = pickFieldName(rec?.fields || {}, ["Reason for dispute"]);
+    const editedReason = (disputeReasonInput?.value ?? "").trim();
+    fieldsToPatch[reasonFieldName] = editedReason || null;
   }
 
   console.log("📤 PATCH payload prepared:", fieldsToPatch);
