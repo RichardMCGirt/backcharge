@@ -368,15 +368,6 @@ img, video {
   box-shadow: 0 8px 24px rgba(0,0,0,.35);
 }
 
-/* Pulsing ring to draw attention to the active choice */
-.sheet .actions button.approve.attn{
-  animation: pulseApprove 1.2s ease-in-out infinite;
-}
-.sheet .actions button.dispute.attn{
-  animation: pulseDispute 1.2s ease-in-out infinite;
-}
-
-
 /* Slightly bolder header/message */
 .sheet h3{ font-size: 18px; letter-spacing: .2px; }
 .sheet p { font-size: 15px; }
@@ -397,6 +388,10 @@ img, video {
     font-size: 0.8rem;   /* shrink chips but still legible */
     padding: 2px 6px;
   }
+}
+
+#disputeFormContainer select {
+  width: 90%;
 }
 
  /* Container */

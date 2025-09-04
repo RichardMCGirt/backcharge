@@ -866,7 +866,8 @@ function ensureBackchargeFormStyles() {
     #disputeFormContainer .bf-grid {
       display: grid;
       width: 100%;
-      grid-template-columns: minmax(0, 1fr) 220px;
+      /* Make dropdown (col 1) wider by narrowing the amount column (col 2) */
+      grid-template-columns: minmax(0, 1fr) 140px;
       gap: 10px 14px;
       align-items: start;
       box-sizing: border-box;
@@ -881,6 +882,7 @@ function ensureBackchargeFormStyles() {
       text-align: right;
       align-self: center;
       padding-right: 4px;
+      white-space: nowrap; /* keep "Amount" on one line in the narrower column */
     }
     #disputeFormContainer .bf-display {
       border: 1px solid #e5e7eb;
@@ -898,25 +900,52 @@ function ensureBackchargeFormStyles() {
       font-size: 14px;
       box-sizing: border-box;
     }
+    /* Make the number input visually tighter */
+    #disputeFormContainer #disputeAmountInput {
+      text-align: right;      /* typical for amounts */
+      padding-right: 10px;    /* keep cursor clear of border */
+    }
+
     #disputeFormContainer textarea {
       min-height: 72px;
       resize: vertical;
       line-height: 1.3;
     }
-    #disputeFormContainer .bf-reason {
-      grid-template-columns: 80px 1fr;
-      gap: 8px;
-      align-items: start;
-    }
+
     /* group rows for show/hide */
     #disputeFormContainer .bf-row { display: contents; }
     #disputeFormContainer .bf-hidden { display: none !important; }
 
+    /* Reason row spans full width (both grid columns) */
+    #disputeFormContainer .bf-reason {
+      display: grid;
+      grid-template-columns: 80px 1fr;
+      gap: 8px;
+      align-items: start;
+      grid-column: 1 / -1;
+    }
+
     /* hide vendor amount input */
     #disputeFormContainer #disputeVendorAmountInput { display: none !important; }
+
+    /* Mobile tweaks: make amount column even narrower so the dropdown gets max width */
+    @media (max-width: 640px) {
+      #disputeFormContainer .bf-grid {
+        grid-template-columns: minmax(0, 1fr) 120px;
+      }
+      #disputeFormContainer .bf-reason {
+        grid-template-columns: 1fr; /* label above textarea on small screens */
+      }
+      #disputeFormContainer .bf-reason label {
+        margin-bottom: 6px;
+        align-self: start;
+      }
+    }
   `;
   document.head.appendChild(style);
 }
+
+
 
 
 /* =========================
@@ -948,14 +977,14 @@ function ensureDisputeForm(sheet) {
     <!-- Row: Vendor (editable) -->
     <div id="bf-vendor-row" class="bf-row">
       <label for="disputeVendorSelect">Vendor to Backcharge</label>
-      <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
+      <label class="bf-amount-label" for="disputeVendorAmountInput"></label>
 
       <select id="disputeVendorSelect">
         <option value="">— None —</option>
       </select>
       <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
     </div>
-
+<br>
     <!-- Row: Reason (full width) -->
     <div class="bf-reason">
       <label for="disputeReasonInput">Reason</label>
