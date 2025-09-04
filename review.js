@@ -36,10 +36,6 @@ let disputeReasonDisplay = null;   // read-only original reason
 let disputeAmountInput = null;          // subcontractor amount
 let disputeVendorAmountInput = null;    // vendor amount
 
-// Dropdown elements for subcontractors
-let disputeSubSelect = null;            // primary subcontractor <select>
-let disputeSub2Select = null;           // secondary subcontractor <select> (optional)
-
 // Secondary Subcontractor amount (optional, separate field(s) in base)
 let disputeAmount2Input = null;
 
@@ -403,18 +399,40 @@ function renderReviews() {
 
   records.forEach(record => {
     const fields = record.fields;
-
     const jobName = fields["Job Name"] || "";
     const reason = fields["Reason for Backcharge"] || "";
     const idNumber = fields["ID Number"];
 
     // Backcharge (one field used for either sub or vendor)
- let backchargeAmount = fields["Backcharge Amount"];
+let backchargeAmount = fields["Backcharge Amount"];
 let amountChip = "";
 if (backchargeAmount !== "" && backchargeAmount != null) {
-  const hasVendor = Array.isArray(fields["Vendor to backcharge"]) && fields["Vendor to backcharge"].length > 0;
-  const hasSub    = Array.isArray(fields["Subcontractor to Backcharge"]) && fields["Subcontractor to Backcharge"].length > 0;
-  const label = hasVendor && !hasSub ? "Vendor Backcharge" : "Subcontractor Backcharge";
+  // detect vendor via link field OR non-empty "Vendor Brick and Mortar Location"
+  const vendorFieldName = pickFieldName(fields, [
+    "Vendor to backcharge",
+    "Vendor to Backcharge",
+    "Vendor"
+  ]);
+  const vendorLocationFieldName = pickFieldName(fields, [
+    "Vendor Brick and Mortar Location",
+    "Vendor Brick & Mortar Location",
+    "Vendor brick and mortar location",
+    "Vendor Location"
+  ]);
+
+  const vendorRaw = fields[vendorFieldName];
+  const vendorLocRaw = fields[vendorLocationFieldName];
+
+  const hasVendor =
+    Array.isArray(vendorRaw) ? vendorRaw.length > 0 : !!vendorRaw;
+
+  const hasVendorLocation = Array.isArray(vendorLocRaw)
+    ? vendorLocRaw.length > 0
+    : (typeof vendorLocRaw === "string" ? vendorLocRaw.trim().length > 0 : !!vendorLocRaw);
+
+  const label = (hasVendor || hasVendorLocation)
+    ? "Vendor to backcharge"
+    : "Subcontractor Backcharge";
 
   const amt = `$${parseFloat(backchargeAmount).toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -422,7 +440,6 @@ if (backchargeAmount !== "" && backchargeAmount != null) {
   })}`;
   amountChip = `<span class="chip">${escapeHtml(label)}: ${escapeHtml(amt)}</span>`;
 }
-
 
     // NEW: Builder Backcharged Amount (separate field) chip
     let builderBackchargeChip = "";
@@ -437,7 +454,6 @@ if (backchargeAmount !== "" && backchargeAmount != null) {
     const technician = techNames.join(", ");
     const customer = normalizeNames(fields["Customer"] || [], CUSTOMER_TABLE).join(", ");
     const subcontractor = normalizeNames(fields["Subcontractor to Backcharge"] || [], SUBCONTRACTOR_TABLE).join(", ");
-
     const photos = fields["Photos"] || [];
     const photoCount = photos.length;
 
@@ -717,7 +733,6 @@ function openDecisionSheet(recordId, jobName, decision) {
 
     // Build options in both selects from SUBCONTRACTOR_TABLE (once per open)
     buildSubcontractorOptions(disputeSubSelect);
-    buildSubcontractorOptions(disputeSub2Select);
 
     // Prefill read-only vendor(s)
     const vendorRecs = getLinkedRecords(VENDOR_TABLE, rec?.fields?.["Vendor to backcharge"] || []);
@@ -725,7 +740,7 @@ function openDecisionSheet(recordId, jobName, decision) {
     disputeVendorDisplay.textContent = vendorNames || "(None)";
 
     // Prefill reason and amounts — both amount inputs reflect the single "Backcharge Amount" field
-    const originalReason = rec?.fields?.["Issue"] || "";
+    const originalReason = rec?.fields?.["Reason"] || "";
     const originalBackcharge = rec?.fields?.["Backcharge Amount"];
 
     disputeReasonDisplay.textContent = originalReason || "(No reason on record)";
@@ -742,14 +757,6 @@ function openDecisionSheet(recordId, jobName, decision) {
     // Prefill selects with current linked subs (supports ID or Name values)
     const primVal = (Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) ? rec.fields["Subcontractor to Backcharge"][0] : null);
     selectOptionByIdOrName(disputeSubSelect, primVal);
-
-    const secondarySubFieldName = pickFieldName(rec?.fields || {}, [
-      "Secondary Subcontractor to backcharge",
-      "Secondary Subcontractor to Backcharge",
-      "Secondary Subcontractor"
-    ]);
-    const secVal = (Array.isArray(rec?.fields?.[secondarySubFieldName]) ? rec.fields[secondarySubFieldName][0] : null);
-    selectOptionByIdOrName(disputeSub2Select, secVal);
 
     // Decide which row to show: show either primary sub row OR vendor row
     const primaryRowEl = disputeFormContainer.querySelector("#bf-primary-sub-row");
@@ -797,10 +804,8 @@ function openDecisionSheet(recordId, jobName, decision) {
     if (disputeVendorDisplay) disputeVendorDisplay.textContent = "";
     if (disputeReasonDisplay) disputeReasonDisplay.textContent = "";
     if (disputeAmountInput) disputeAmountInput.value = "";
-    if (disputeAmount2Input) disputeAmount2Input.value = "";
     if (disputeVendorAmountInput) disputeVendorAmountInput.value = "";
     if (disputeSubSelect) disputeSubSelect.value = "";
-    if (disputeSub2Select) disputeSub2Select.value = "";
   }
 
   approveBtn.classList.toggle("attn", decision === "Approved");
@@ -891,54 +896,41 @@ function ensureDisputeForm(sheet) {
     disputeFormContainer.style.display = "none";
 
     disputeFormContainer.innerHTML = `
-      <div class="bf-grid">
+  <div class="bf-grid">
 
-        <!-- Row: Subcontractor (wrapped so we can hide as a group) -->
-        <div id="bf-primary-sub-row" class="bf-row">
-          <label for="disputeSubSelect">Primary Subcontractor to Backcharge</label>
-          <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
+    <!-- Row: Subcontractor (wrapped so we can hide as a group) -->
+    <div id="bf-primary-sub-row" class="bf-row">
+      <label for="disputeSubSelect">Subcontractor to Backcharge</label>
+      <label class="bf-amount-label" for="disputeAmountInput">Amount</label>
 
-          <select id="disputeSubSelect">
-            <option value="">— None —</option>
-          </select>
-          <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="\$0.00" />
-        </div>
+      <select id="disputeSubSelect">
+        <option value="">— None —</option>
+      </select>
+      <input id="disputeAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
+    </div>
 
-        <!-- Row: Secondary Subcontractor (hidden by default unless enabled) -->
-        <div id="bf-secondary-sub-row" class="bf-row bf-hidden">
-          <label for="disputeSub2Select">Secondary Subcontractor to Backcharge</label>
-          <label class="bf-amount-label" for="disputeAmount2Input">Amount</label>
+    <!-- Row: Vendor (wrapped so we can hide as a group) -->
+    <div id="bf-vendor-row" class="bf-row">
+      <label for="disputeVendorDisplay">Vendor to Backcharge</label>
+      <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
 
-          <select id="disputeSub2Select">
-            <option value="">— None —</option>
-          </select>
-          <input id="disputeAmount2Input" type="text" inputmode="decimal" placeholder="\$0.00" />
-        </div>
+      <div id="disputeVendorDisplay" class="bf-display" aria-live="polite"></div>
+      <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
+    </div>
 
-        <!-- Row: Vendor (wrapped so we can hide as a group) -->
-        <div id="bf-vendor-row" class="bf-row">
-          <label for="disputeVendorDisplay">Vendor to Backcharge</label>
-          <label class="bf-amount-label" for="disputeVendorAmountInput">Amount</label>
+    <!-- Row: Reason (full width) -->
+    <div class="bf-reason">
+      <label for="disputeReasonDisplay">Reason</label>
+      <div id="disputeReasonDisplay" class="bf-display" aria-live="polite"></div>
+    </div>
 
-          <div id="disputeVendorDisplay" class="bf-display" aria-live="polite"></div>
-          <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="\$0.00" />
-        </div>
+  </div>
+`;
 
-        <!-- Row: Reason (full width) -->
-        <div class="bf-reason">
-          <label for="disputeReasonDisplay">Reason</label>
-          <div id="disputeReasonDisplay" class="bf-display" aria-live="polite"></div>
-        </div>
-
-      </div>
-    `;
 
     // Wire references back to your globals
     disputeSubSelect          = disputeFormContainer.querySelector("#disputeSubSelect");
     disputeAmountInput        = disputeFormContainer.querySelector("#disputeAmountInput");
-
-    disputeSub2Select         = disputeFormContainer.querySelector("#disputeSub2Select");
-    disputeAmount2Input       = disputeFormContainer.querySelector("#disputeAmount2Input");
 
     disputeVendorDisplay      = disputeFormContainer.querySelector("#disputeVendorDisplay");
     disputeVendorAmountInput  = disputeFormContainer.querySelector("#disputeVendorAmountInput");
@@ -961,7 +953,6 @@ function ensureDisputeForm(sheet) {
       });
     };
     hookupMoney(disputeAmountInput);
-    hookupMoney(disputeAmount2Input);
     hookupMoney(disputeVendorAmountInput);
 
     sheet.appendChild(disputeFormContainer);
@@ -1040,10 +1031,8 @@ function closeDecisionSheet(){
     if (disputeVendorDisplay) disputeVendorDisplay.textContent = "";
     if (disputeReasonDisplay) disputeReasonDisplay.textContent = "";
     if (disputeAmountInput) disputeAmountInput.value = "";
-    if (disputeAmount2Input) disputeAmount2Input.value = "";
     if (disputeVendorAmountInput) disputeVendorAmountInput.value = "";
     if (disputeSubSelect) disputeSubSelect.value = "";
-    if (disputeSub2Select) disputeSub2Select.value = "";
     // Re-enable inputs
     if (disputeAmountInput) disputeAmountInput.disabled = false;
     if (disputeVendorAmountInput) disputeVendorAmountInput.disabled = false;
@@ -1084,7 +1073,6 @@ async function confirmDecision(decision) {
 
     // Sub selection
     const selectedPrimaryId = disputeSubSelect?.value || "";
-    const selectedSecondaryId = disputeSub2Select?.value || "";
 
     // Only ONE main amount field per record → "Backcharge Amount"
     if (isPrimaryVisible && selectedPrimaryId) {
@@ -1118,35 +1106,8 @@ async function confirmDecision(decision) {
       fieldsToPatch["Backcharge Amount"] = null;
     }
 
-    // Secondary sub amount (optional; separate field, if present in base)
-    const secAmtField = pickFieldName(rec?.fields || {}, [
-      "Amount to backcharge secondary sub",
-      "Amount to Backcharge Secondary Sub",
-      "Secondary Backcharge Amount"
-    ]);
-    const secAmtRaw = disputeAmount2Input?.value?.trim() || "";
-    if (secAmtRaw) {
-      const sParsed = parseCurrencyInput(secAmtRaw);
-      if (sParsed == null || isNaN(sParsed) || sParsed < 0) {
-        alert("Please enter a valid positive Secondary Sub Amount (e.g., 900.00), or clear it.");
-        disputeAmount2Input?.focus();
-        return;
-      }
-      fieldsToPatch[secAmtField] = sParsed;
-    } else if (secAmtField) {
-      fieldsToPatch[secAmtField] = null;
-    }
-
     // Patch subcontractor links from selections
     fieldsToPatch["Subcontractor to Backcharge"] = selectedPrimaryId ? [selectedPrimaryId] : [];
-    const secondarySubLinkField = pickFieldName(rec?.fields || {}, [
-      "Secondary Subcontractor to backcharge",
-      "Secondary Subcontractor to Backcharge",
-      "Secondary Subcontractor"
-    ]);
-    if (secondarySubLinkField) {
-      fieldsToPatch[secondarySubLinkField] = selectedSecondaryId ? [selectedSecondaryId] : [];
-    }
   }
 
   console.log("📤 PATCH payload prepared:", fieldsToPatch);
