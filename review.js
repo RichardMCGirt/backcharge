@@ -351,7 +351,8 @@ async function fetchBackcharges() {
   let offset = null;
 
   do {
-    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&filterByFormula=AND(
+    // ⬇️ ADDED &view=viw7ByZyxfuDLUBGY to constrain results to that view
+    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&view=viw7ByZyxfuDLUBGY&filterByFormula=AND(
   {Type of Backcharge} = 'Builder Issued Backcharge',
   OR(
     {Approved or Dispute} = "",
@@ -918,7 +919,6 @@ function ensureBackchargeFormStyles() {
 
     /* Reason row spans full width (both grid columns) */
     #disputeFormContainer .bf-reason {
-      display: grid;
       grid-template-columns: 80px 1fr;
       gap: 8px;
       align-items: start;
