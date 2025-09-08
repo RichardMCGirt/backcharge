@@ -99,17 +99,10 @@ function render() {
   const container = document.getElementById("list");
   const countsEl  = document.getElementById("counts");
   const q = (document.getElementById("searchBar").value || "").trim().toLowerCase();
-  const outcomeFilter = document.getElementById("outcomeFilter").value;
 
   let rows = [...allRecords];
 
-  // Filter by GM Outcome (UI filter)
-  if (outcomeFilter) {
-    rows = rows.filter(r => {
-      const v = (r.fields[FIELD_GM_OUTCOME] ?? "").toString();
-      return equalsIgnoreCase(v, outcomeFilter);
-    });
-  }
+ 
 
   // Search by Job Name
   if (q) {
@@ -253,7 +246,6 @@ function updateUrlWithSearch(query) {
 ========================= */
 document.addEventListener("DOMContentLoaded", async () => {
   const searchBar = document.getElementById("searchBar");
-  const outcomeFilter = document.getElementById("outcomeFilter");
 
   // If URL has ?job=..., populate the search bar
   const params = new URLSearchParams(window.location.search);
@@ -266,7 +258,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     updateUrlWithSearch(searchBar.value.trim());
     render();
   });
-  outcomeFilter.addEventListener("change", render);
 
   try {
     await fetchAll();
