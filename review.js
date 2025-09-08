@@ -967,7 +967,7 @@ function ensureDisputeForm(sheet) {
     <!-- Row: Vendor (editable) -->
     <div id="bf-vendor-row" class="bf-row">
       <label for="disputeVendorSelect">Vendor to Backcharge</label>
-      <label class="bf-amount-label" for="disputeVendorAmountInput">Vendor Amount to Backcharge</label>
+      <label class="bf-amount-label" for="disputeVendorAmountInput">Vendor Amount</label>
 
       <select id="disputeVendorSelect">
         <option value="">— None —</option>
