@@ -330,6 +330,8 @@ img, video {
   text-align: left;
 }
 
+
+
 .reason-photo-row .photos a {
   white-space: nowrap; /* prevents line break in "image(s)" */
 }
@@ -485,3 +487,75 @@ img, video {
       }
     }
 
+ /* New-records banner */
+  #new-records-banner {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    z-index: 9999;
+    display: none;
+    background: #0f172a;           /* slate-900 */
+    color: #f8fafc;                /* slate-50 */
+    border: 1px solid #1e293b;     /* slate-800 */
+    border-radius: 14px;
+    padding: 12px 14px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }
+  #new-records-banner .nb-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  #new-records-banner .nb-msg {
+    font-weight: 600;
+    line-height: 1.2;
+    flex: 1 1 auto;
+    min-width: 180px;
+  }
+  #new-records-banner .nb-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  #new-records-banner button {
+    appearance: none;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #new-records-banner .nb-load {
+    background: #22c55e;           /* green-500 */
+    color: #052e10;
+    border-color: #16a34a;
+  }
+  #new-records-banner .nb-dismiss {
+    background: #0b1220;
+    color: #cbd5e1;
+    border-color: #334155;
+  }
+  #new-records-banner label.nb-autoload {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    opacity: 0.9;
+  }
+
+  /* Small helper toast for "auto-loaded" */
+  #new-records-toast {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 9999;
+    display: none;
+    background: #111827;           /* gray-900 */
+    color: #e5e7eb;                /* gray-200 */
+    border: 1px solid #1f2937;     /* gray-800 */
+    border-radius: 12px;
+    padding: 10px 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+  }

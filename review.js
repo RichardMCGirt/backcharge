@@ -12,8 +12,6 @@ const TECH_TABLE          = "tblj6Fp0rvN7QyjRv"; // “Full Name”
 const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK"; // “Office Name”
 const VENDOR_TABLE        = "tblp77wpnsiIjJLGh"; // Vendor table used by "Vendor to backcharge"
 
-
-// Helper: check that every element is a
 // Cache & State
 const recordCache = {};            // `${tableId}_${recId}` -> displayName
 const tableRecords = {};           // tableId -> full records[]
@@ -34,9 +32,10 @@ let disputeReasonInput = null;           // editable original reason
 let disputeSubSelect = null;             // NEW: keep reference
 let disputeVendorSelect = null;          // NEW: vendor select (editable)
 
-// Amount inputs (only one is saved per record; both map to Backcharge Amount)
-let disputeAmountInput = null;           // subcontractor amount
-let disputeVendorAmountInput = null;     // vendor amount
+// Amount inputs (each maps to its own field now)
+// 🔧 CHANGED: clarify mapping in comment
+let disputeAmountInput = null;           // maps to "Backcharge Amount" (sub amount)
+let disputeVendorAmountInput = null;     // maps to "Vendor Amount to Backcharge" (vendor amount)
 
 // Secondary Subcontractor amount (optional, separate field(s) in base)
 let disputeAmount2Input = null;
@@ -224,6 +223,8 @@ async function fetchAllRecords(tableId, keyFields) {
     }
 
     recordCache[`${tableId}_${rec.id}`] = displayName;
+    registerInitialRecords(recordsArrayYouRendered);
+
   }
 }
 
@@ -454,28 +455,20 @@ function renderReviews() {
     const reason = fields[reasonFieldName] || "";
     const idNumber = fields["ID Number"];
 
-    // Backcharge (one field used for either sub or vendor)
-    let backchargeAmount = fields["Backcharge Amount"];
-    let amountChip = "";
-    if (backchargeAmount !== "" && backchargeAmount != null) {
-      // detect vendor via link field OR non-empty "Vendor Brick and Mortar Location"
-      const vendorLinkVal = fields["Vendor to backcharge"]; // array of rec IDs
-      const vendorLocRaw = fields["Vendor Brick and Mortar Location"];
+    // 🔧 CHANGED: show amounts separately (sub vs vendor)
+    const subBackcharge = fields["Backcharge Amount"];
+    const vendorBackcharge = fields["Vendor Amount to Backcharge"];
 
-      const hasVendor = Array.isArray(vendorLinkVal) ? vendorLinkVal.length > 0 : !!vendorLinkVal;
-      const hasVendorLocation = Array.isArray(vendorLocRaw)
-        ? vendorLocRaw.length > 0
-        : (typeof vendorLocRaw === "string" ? vendorLocRaw.trim().length > 0 : !!vendorLocRaw);
+    let subAmtChip = "";
+    if (subBackcharge !== "" && subBackcharge != null) {
+      const amt = `$${parseFloat(subBackcharge).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      subAmtChip = `<span class="chip">Subcontractor Amount: ${escapeHtml(amt)}</span>`;
+    }
 
-      const label = (hasVendor || hasVendorLocation)
-        ? "Vendor to backcharge"
-        : "Subcontractor Backcharge";
-
-      const amt = `$${parseFloat(backchargeAmount).toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      })}`;
-      amountChip = `<span class="chip">${escapeHtml(label)}: ${escapeHtml(amt)}</span>`;
+    let vendorAmtChip = "";
+    if (vendorBackcharge !== "" && vendorBackcharge != null) {
+      const amt = `$${parseFloat(vendorBackcharge).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      vendorAmtChip = `<span class="chip">Vendor Amount: ${escapeHtml(amt)}</span>`;
     }
 
     // Builder Backcharged Amount chip
@@ -535,7 +528,6 @@ function renderReviews() {
   ${idChip}
   <span class="job-name" style="flex:1; text-align:right;">${escapeHtml(jobName)}</span>
 </p>
-
       <br>
                <div class="chips">
         ${branchChip}
@@ -543,10 +535,10 @@ function renderReviews() {
         ${customer ? `<span class="chip">Builder: ${escapeHtml(customer)}</span>` : ""}
         ${subcontractor ? `<span class="chip">Subcontractor to backcharge: ${escapeHtml(subcontractor)}</span>` : ""}
         ${builderBackchargeChip}
-        ${amountChip}
+        ${subAmtChip}
+        ${vendorAmtChip}
         ${vendorLinksHtml || ""}
       </div>
-
      ${
   reason || photoCount > 0
     ? `
@@ -768,13 +760,13 @@ function openDecisionSheet(recordId, jobName, decision) {
   approveBtn.style.display = decision === "Approve" ? "block" : "none";
   disputeBtn.style.display = decision === "Dispute" ? "block" : "none";
 
-  // ---------- Prefill UI from record ----------
   // Build selects
   buildSubcontractorOptions(disputeSubSelect);
   buildVendorOptions(disputeVendorSelect);
 
   // Resolve the vendor link field name and prefill
-  const vendorLinkFieldName = pickFieldName(rec?.fields || {}, ["Vendor to backcharge", "Vendor Brick and Mortar Location"]);
+  // 🔧 CHANGED: prefer linked-record field automatically
+  const vendorLinkFieldName = getVendorLinkFieldNameForPatch(rec);
   const vendorIds = Array.isArray(rec?.fields?.[vendorLinkFieldName]) ? rec.fields[vendorLinkFieldName] : [];
   if (disputeVendorSelect) {
     disputeVendorSelect.value = "";
@@ -858,7 +850,6 @@ function openDecisionSheet(recordId, jobName, decision) {
 
   document.addEventListener("keydown", onSheetEsc);
 }
-
 
 /* =========================
    BOTTOM SHEET CONFIRM
@@ -956,7 +947,7 @@ function ensureDisputeForm(sheet) {
     <!-- Row: Subcontractor (editable) -->
     <div id="bf-primary-sub-row" class="bf-row">
       <label for="disputeSubSelect">Subcontractor to Backcharge</label>
-      <label class="bf-amount-label" for="disputeAmountInput">Sub Amount</label>
+      <label class="bf-amount-label" for="disputeAmountInput">Subcontractor Amount</label>
 
       <select id="disputeSubSelect">
         <option value="">— None —</option>
@@ -1145,6 +1136,20 @@ function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
 /* =========================
    PATCH TO AIRTABLE
 ========================= */
+
+// 🔧 CHANGED: helper to pick the vendor **linked-record** field safely
+function getVendorLinkFieldNameForPatch(rec) {
+  const f = rec?.fields || {};
+  const candidates = ["Vendor to backcharge", "Vendor Brick and Mortar Location"];
+  // Prefer whichever currently contains linked-record IDs
+  for (const k of candidates) {
+    const v = f[k];
+    if (looksLikeLinkedIds(v)) return k;
+  }
+  // Fallback to the conventional linked field
+  return "Vendor to backcharge";
+}
+
 async function confirmDecision(decision) {
   if (!pendingRecordId || !decision) {
     console.warn("⚠️ confirmDecision called without recordId or decision", { pendingRecordId, decision });
@@ -1163,46 +1168,36 @@ async function confirmDecision(decision) {
   const selectedSubId    = disputeSubSelect?.value || "";
   const selectedVendorId = disputeVendorSelect?.value || "";
 
-  // Gather amounts
+  // Gather amounts (each maps to its own field)
   const subAmtRaw    = disputeAmountInput?.value?.trim() || "";
   const vendorAmtRaw = disputeVendorAmountInput?.value?.trim() || "";
 
   const subAmtParsed    = subAmtRaw ? parseCurrencyInput(subAmtRaw)    : null;
   const vendorAmtParsed = vendorAmtRaw ? parseCurrencyInput(vendorAmtRaw) : null;
 
-  // Choose which amount to save to Backcharge Amount:
-  // If a vendor is selected, prefer vendor amount; else if a sub is selected, use sub amount; else null.
-  let amountToSave = null;
-  if (selectedVendorId) {
-    amountToSave = vendorAmtParsed;
-  } else if (selectedSubId) {
-    amountToSave = subAmtParsed;
-  } else {
-    amountToSave = null;
+  // 🔧 CHANGED: Validate each independently (if provided)
+  if (subAmtParsed != null && (isNaN(subAmtParsed) || subAmtParsed < 0)) {
+    alert("Please enter a valid positive Subcontractor Amount.");
+    disputeAmountInput?.focus();
+    return;
   }
-
-  // Validate chosen amount if present
-  if (amountToSave != null && (isNaN(amountToSave) || amountToSave < 0)) {
-    alert("Please enter a valid positive amount.");
-    if (selectedVendorId) {
-      disputeVendorAmountInput?.focus();
-    } else {
-      disputeAmountInput?.focus();
-    }
+  if (vendorAmtParsed != null && (isNaN(vendorAmtParsed) || vendorAmtParsed < 0)) {
+    alert("Please enter a valid positive Vendor Amount.");
+    disputeVendorAmountInput?.focus();
     return;
   }
 
   // Patch link fields
   fieldsToPatch["Subcontractor to Backcharge"] = selectedSubId ? [selectedSubId] : [];
 
-  // Resolve which vendor link field this base uses and patch it
-  const vendorLinkFieldName = pickFieldName(rec?.fields || {}, ["Vendor Brick and Mortar Location"]);
+  // 🔧 CHANGED: patch the correct vendor **linked field** only
+  const vendorLinkFieldName = getVendorLinkFieldNameForPatch(rec);
   fieldsToPatch[vendorLinkFieldName] = selectedVendorId ? [selectedVendorId] : [];
 
-  // Patch the unified Backcharge Amount
-  fieldsToPatch["Backcharge Amount"] = amountToSave == null ? null : amountToSave;
+  // 🔧 CHANGED: patch **both** amount fields independently (no winner)
+  fieldsToPatch["Backcharge Amount"] = subAmtParsed == null ? null : subAmtParsed;
 
-  // Patch the dedicated Vendor Amount to Backcharge (if present on the record schema)
+  // Only patch Vendor Amount to Backcharge if schema has it (avoid 422 on bases without it)
   if ("Vendor Amount to Backcharge" in (rec?.fields || {})) {
     fieldsToPatch["Vendor Amount to Backcharge"] = vendorAmtParsed == null ? null : vendorAmtParsed;
   }
@@ -1393,3 +1388,198 @@ document.addEventListener("DOMContentLoaded", () => {
     hideLoading();
   }
 })();
+
+
+/* =========================
+   Background New Records Finder for Airtable
+   - Detects records not currently shown in UI
+   - Prompts user to load them
+   - Optional auto-load toggle
+========================= */
+
+/** REQUIRE: These three constants must already exist in your app. */
+// const AIRTABLE_API_KEY = "...";
+// const BASE_ID = "...";
+// const TABLE_ID = "...";
+
+/** OPTIONAL: If you filter by a specific view during normal listing, set it here to match. */
+const DEFAULT_VIEW_FOR_BG_CHECK = ""; // e.g., "viwMlo3nM8JDCIMyV" or "" to omit
+
+/** Poll interval (ms) */
+const BACKGROUND_CHECK_INTERVAL_MS = 60_000;
+
+/** LocalStorage keys */
+const LS_AUTOLOAD = "vanir_autoload_new_records";
+const LS_LAST_CHECK_ISO = "vanir_last_check_iso";
+
+/** Runtime state */
+const CURRENT_RECORD_IDS = new Set();
+let INITIAL_LOAD_ISO = new Date().toISOString();
+let bgIntervalHandle = null;
+let bgInFlight = false;
+
+/**
+ * Call this right after your initial render:
+ *   registerInitialRecords(recordsFromYourFirstFetch)
+ */
+function registerInitialRecords(records) {
+  try {
+    CURRENT_RECORD_IDS.clear();
+    for (const r of (records || [])) {
+      if (r && r.id) CURRENT_RECORD_IDS.add(r.id);
+    }
+    INITIAL_LOAD_ISO = new Date().toISOString();
+    localStorage.setItem(LS_LAST_CHECK_ISO, INITIAL_LOAD_ISO);
+    // Start the background checker once we know what’s in the UI
+    startBackgroundNewRecordsCheck();
+  } catch (e) {
+    console.error("registerInitialRecords error:", e);
+  }
+}
+
+/**
+ * Starts polling Airtable for changes since last check.
+ * Uses LAST_MODIFIED_TIME() so we catch edits as well as brand-new rows.
+ */
+function startBackgroundNewRecordsCheck() {
+  if (bgIntervalHandle) return;
+  bgIntervalHandle = setInterval(async () => {
+    if (bgInFlight) return;
+    bgInFlight = true;
+    try {
+      const sinceIso = localStorage.getItem(LS_LAST_CHECK_ISO) || INITIAL_LOAD_ISO;
+      const updates = await fetchUpdatedRecordsSince(sinceIso);
+      const unseen = updates.filter(r => !CURRENT_RECORD_IDS.has(r.id));
+
+      // If new records aren’t currently displayed, ask (or auto-load)
+      if (unseen.length > 0) {
+        const shouldAutoload = localStorage.getItem(LS_AUTOLOAD) === "1";
+        if (shouldAutoload) {
+          // Auto-merge into UI
+          renderNewRecords(unseen);
+          for (const r of unseen) CURRENT_RECORD_IDS.add(r.id);
+          showToast(`${unseen.length} new record${unseen.length>1?"s":""} auto-loaded`);
+        } else {
+          showNewRecordsBanner(unseen);
+        }
+      }
+
+      // Advance watermark
+      localStorage.setItem(LS_LAST_CHECK_ISO, new Date().toISOString());
+    } catch (e) {
+      console.error("Background check failed:", e);
+    } finally {
+      bgInFlight = false;
+    }
+  }, BACKGROUND_CHECK_INTERVAL_MS);
+}
+
+/**
+ * Fetch records updated after a timestamp.
+ * NOTE: This uses Airtable’s formula functions in filterByFormula.
+ * You can also switch to a dedicated “Last Modified” field if you prefer.
+ */
+async function fetchUpdatedRecordsSince(sinceIso) {
+  const urlBase = `https://api.airtable.com/v0/${encodeURIComponent(BASE_ID)}/${encodeURIComponent(TABLE_ID)}`;
+  const headers = {
+    "Authorization": `Bearer ${AIRTABLE_API_KEY}`
+  };
+
+  const params = new URLSearchParams();
+  params.set("pageSize", "100");
+  // Compare with LAST_MODIFIED_TIME(); Airtable will parse the ISO string
+  params.set("filterByFormula", `IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE("${sinceIso}"))`);
+  if (DEFAULT_VIEW_FOR_BG_CHECK) params.set("view", DEFAULT_VIEW_FOR_BG_CHECK);
+
+  let all = [];
+  let offset = null;
+
+  do {
+    const thisParams = new URLSearchParams(params);
+    if (offset) thisParams.set("offset", offset);
+
+    const res = await fetch(`${urlBase}?${thisParams.toString()}`, { headers });
+    if (!res.ok) {
+      const msg = await res.text().catch(() => "");
+      throw new Error(`Airtable list failed (${res.status}): ${msg}`);
+    }
+    const json = await res.json();
+    const recs = Array.isArray(json.records) ? json.records : [];
+    all = all.concat(recs);
+    offset = json.offset;
+  } while (offset);
+
+  return all;
+}
+
+/**
+ * Minimal banner UI: asks user to load unseen records.
+ */
+function showNewRecordsBanner(unseenRecords) {
+  const banner = document.getElementById("new-records-banner");
+  const msg = banner.querySelector(".nb-msg");
+  const btnLoad = banner.querySelector(".nb-load");
+  const btnDismiss = banner.querySelector(".nb-dismiss");
+  const autoloadChk = banner.querySelector(".nb-autoload-input");
+
+  msg.textContent = `${unseenRecords.length} record${unseenRecords.length>1?"s":""} not in view. Load now?`;
+  autoloadChk.checked = (localStorage.getItem(LS_AUTOLOAD) === "1");
+  banner.style.display = "block";
+
+  // Clean previous handlers
+  btnLoad.replaceWith(btnLoad.cloneNode(true));
+  btnDismiss.replaceWith(btnDismiss.cloneNode(true));
+  const newLoad = banner.querySelector(".nb-load");
+  const newDismiss = banner.querySelector(".nb-dismiss");
+
+  newLoad.addEventListener("click", () => {
+    renderNewRecords(unseenRecords);
+    for (const r of unseenRecords) CURRENT_RECORD_IDS.add(r.id);
+    banner.style.display = "none";
+  });
+
+  newDismiss.addEventListener("click", () => {
+    banner.style.display = "none";
+  });
+
+  autoloadChk.addEventListener("change", (e) => {
+    localStorage.setItem(LS_AUTOLOAD, e.target.checked ? "1" : "0");
+  }, { once: true });
+}
+
+/** Tiny toast for auto-loaded case */
+function showToast(text, ms = 3000) {
+  const el = document.getElementById("new-records-toast");
+  el.textContent = text;
+  el.style.display = "block";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = "none"; }, ms);
+}
+
+/**
+ * 🔧 IMPLEMENT ME: merge new records into your existing UI.
+ * You likely already have a renderer; just call it here.
+ * Example below assumes you have a function addRecordCard(record)
+ * or re-run your list render with the merged dataset.
+ */
+function renderNewRecords(records) {
+  try {
+    // EXAMPLE: If you keep a global array: window.ALL_RECORDS
+    // window.ALL_RECORDS = window.ALL_RECORDS.concat(records);
+    // rerenderList(window.ALL_RECORDS);
+
+    // Placeholder: log + NO-OP to avoid breaking anything.
+    console.log(`Render ${records.length} new record(s):`, records);
+    // TODO: Replace with your actual renderer:
+    // records.forEach(addRecordCard);
+  } catch (e) {
+    console.error("renderNewRecords error:", e);
+  }
+}
+
+/* =========================
+   HOW TO WIRE THIS UP
+   1) After your first fetch + render:
+        registerInitialRecords(firstPageOrAllRecordsArray);
+   2) That’s it. The background checker will run every minute.
+========================= */

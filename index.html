@@ -66,7 +66,20 @@
 
 <!-- Toast -->
 <div id="toast"></div>
-
+<div id="new-records-banner" role="status" aria-live="polite">
+  <div class="nb-row">
+    <div class="nb-msg"></div>
+    <div class="nb-actions">
+      <button type="button" class="nb-load">Load</button>
+      <button type="button" class="nb-dismiss">Dismiss</button>
+      <label class="nb-autoload">
+        <input type="checkbox" class="nb-autoload-input">
+        Always auto-load
+      </label>
+    </div>
+  </div>
+</div>
+<div id="new-records-toast"></div>
 <!-- Loading overlay -->
 <div id="loadingOverlay"><div class="spinner" aria-hidden="true"></div></div>
 <div id="sheetBackdrop"></div>
