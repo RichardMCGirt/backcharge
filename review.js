@@ -352,7 +352,7 @@ async function fetchBackcharges() {
 
   do {
     // ⬇️ ADDED &view=viw7ByZyxfuDLUBGY to constrain results to that view
-    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&view=viw7ByZyxfuDLUBGY&filterByFormula=AND(
+    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&view=viwTHoVVR3TsPDR6k&filterByFormula=AND(
   {Type of Backcharge} = 'Builder Issued Backcharge',
   OR(
     {Approved or Dispute} = "",
