@@ -1196,7 +1196,7 @@ async function confirmDecision(decision) {
   fieldsToPatch["Subcontractor to Backcharge"] = selectedSubId ? [selectedSubId] : [];
 
   // Resolve which vendor link field this base uses and patch it
-  const vendorLinkFieldName = pickFieldName(rec?.fields || {}, ["Vendor to backcharge", "Vendor Brick and Mortar Location"]);
+  const vendorLinkFieldName = pickFieldName(rec?.fields || {}, ["Vendor Brick and Mortar Location"]);
   fieldsToPatch[vendorLinkFieldName] = selectedVendorId ? [selectedVendorId] : [];
 
   // Patch the unified Backcharge Amount
