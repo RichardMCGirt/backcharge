@@ -26,7 +26,9 @@ const FILTER_BASE_FORMULA = `AND(
 
 // Cache & State
 const recordCache = {};            // `${tableId}_${recId}` -> displayName
-const tableRecords = {};           // tableId -> full records[]
+const tableRecords = {};
+const FORCE_AUTOLOAD = true;
+           // tableId -> full records[]
 let allRecords = []; 
 let activeTechFilter = null;
 let activeBranchFilter = null;
@@ -69,7 +71,6 @@ function startConsoleCountdown(durationMs) {
     const totalSec = Math.ceil(remaining / 1000);
     const mm = Math.floor(totalSec / 60);
     const ss = totalSec % 60;
-    console.log(`⏳ Next fetch in ${pad(mm)}:${pad(ss)}`);
     if (remaining <= 0) stopConsoleCountdown();
   };
 
@@ -1471,7 +1472,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 /** Poll interval (ms) */
-const BACKGROUND_CHECK_INTERVAL_MS = 60_000;
+const BACKGROUND_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 900000 ms = 15 minutes
 
 /** LocalStorage keys */
 const LS_AUTOLOAD = "vanir_autoload_new_records";
@@ -1483,10 +1484,6 @@ let INITIAL_LOAD_ISO = new Date().toISOString();
 let bgIntervalHandle = null;
 let bgInFlight = false;
 
-/**
- * Call this right after your initial render:
- *   registerInitialRecords(recordsFromYourFirstFetch)
- */
 function registerInitialRecords(records) {
   try {
     CURRENT_RECORD_IDS.clear();
@@ -1495,6 +1492,12 @@ function registerInitialRecords(records) {
     }
     INITIAL_LOAD_ISO = new Date().toISOString();
     localStorage.setItem(LS_LAST_CHECK_ISO, INITIAL_LOAD_ISO);
+
+    // Default autoload ON if not yet set
+    if (localStorage.getItem(LS_AUTOLOAD) == null) {
+      localStorage.setItem(LS_AUTOLOAD, "1");
+    }
+
     // Start the background checker once we know what’s in the UI
     startBackgroundNewRecordsCheck();
   } catch (e) {
@@ -1502,10 +1505,6 @@ function registerInitialRecords(records) {
   }
 }
 
-/**
- * Starts polling Airtable for changes since last check.
- * Uses LAST_MODIFIED_TIME() so we catch edits as well as brand-new rows.
- */
 function startBackgroundNewRecordsCheck() {
   if (bgIntervalHandle) return;
 
@@ -1518,23 +1517,20 @@ function startBackgroundNewRecordsCheck() {
       const unseen = updates.filter(r => !CURRENT_RECORD_IDS.has(r.id));
 
       if (unseen.length > 0) {
-        const shouldAutoload = localStorage.getItem(LS_AUTOLOAD) === "1";
+const shouldAutoload = FORCE_AUTOLOAD || (localStorage.getItem(LS_AUTOLOAD) === "1");
         if (shouldAutoload) {
           renderNewRecords(unseen);
           unseen.forEach(r => CURRENT_RECORD_IDS.add(r.id));
-          // keep your existing toast if you want; or comment out
+          // Optional console note:
           console.log(`✅ Auto-loaded ${unseen.length} new record${unseen.length>1?'s':''}`);
         } else {
           showNewRecordsBanner(unseen);
         }
       }
 
-      // 30s overlap to avoid missing near-boundary changes
+      // 30s overlap to avoid missing near-boundary updates
       const nextIso = new Date(Date.now() - 30 * 1000).toISOString();
       localStorage.setItem(LS_LAST_CHECK_ISO, nextIso);
-
-      // restart the countdown for the next interval
-      startConsoleCountdown(BACKGROUND_CHECK_INTERVAL_MS);
     } catch (e) {
       console.error("Background check failed:", e);
     } finally {
@@ -1542,12 +1538,8 @@ function startBackgroundNewRecordsCheck() {
     }
   };
 
-  // Standard heartbeat
   bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
-
-  // Kick off quickly and show a short countdown to that first tick
-  setTimeout(tick, 1500);
-  startConsoleCountdown(1500);
+  setTimeout(tick, 1500); // quick first run
 
   // Pause timers when the tab is hidden; resume when visible
   document.addEventListener("visibilitychange", () => {
