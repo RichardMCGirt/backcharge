@@ -11,6 +11,18 @@ const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU"; // “Client Name”
 const TECH_TABLE          = "tblj6Fp0rvN7QyjRv"; // “Full Name”
 const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK"; // “Office Name”
 const VENDOR_TABLE        = "tblp77wpnsiIjJLGh"; // Vendor table used by "Vendor to backcharge"
+// Reuse your main list scope everywhere
+const DEFAULT_VIEW_FOR_BG_CHECK = "viwTHoVVR3TsPDR6k";
+let bgCountdownHandle = null;
+
+// Keep one copy of your base list formula to use in both places
+const FILTER_BASE_FORMULA = `AND(
+  {Type of Backcharge} = 'Builder Issued Backcharge',
+  OR(
+    {Approved or Dispute} = "",
+    NOT({Approved or Dispute})
+  )
+)`;
 
 // Cache & State
 const recordCache = {};            // `${tableId}_${recId}` -> displayName
@@ -47,6 +59,32 @@ let disputeVendorDisplay = null;
 /* =========================
    UTIL / UI HELPERS
 ========================= */
+function startConsoleCountdown(durationMs) {
+  stopConsoleCountdown();
+  const pad = (n) => String(n).padStart(2, "0");
+  const end = Date.now() + Math.max(0, durationMs);
+
+  const print = () => {
+    const remaining = Math.max(0, end - Date.now());
+    const totalSec = Math.ceil(remaining / 1000);
+    const mm = Math.floor(totalSec / 60);
+    const ss = totalSec % 60;
+    console.log(`⏳ Next fetch in ${pad(mm)}:${pad(ss)}`);
+    if (remaining <= 0) stopConsoleCountdown();
+  };
+
+  print(); // log immediately
+  bgCountdownHandle = setInterval(print, 1000);
+}
+
+function stopConsoleCountdown() {
+  if (bgCountdownHandle) {
+    clearInterval(bgCountdownHandle);
+    bgCountdownHandle = null;
+  }
+}
+
+
 function looksLikeLinkedIds(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return false;
   const recPattern = /^rec[A-Za-z0-9]{14}$/;
@@ -209,12 +247,11 @@ async function fetchAllRecords(tableId, keyFields) {
       }
     }
 
-    // 2) If still an ID, try first non-empty string field on the record
+    // 2) Fallbacks for a human-ish label
     if (displayName === rec.id && rec.fields) {
       const firstString = Object.values(rec.fields).find(v => typeof v === "string" && v.trim().length);
       if (firstString) displayName = firstString.trim();
       else {
-        // Or first string inside an array field
         const firstArrayString = Object.values(rec.fields).find(v =>
           Array.isArray(v) && v.length && typeof v[0] === "string" && v[0].trim().length
         );
@@ -223,11 +260,31 @@ async function fetchAllRecords(tableId, keyFields) {
     }
 
     recordCache[`${tableId}_${rec.id}`] = displayName;
-    registerInitialRecords(recordsArrayYouRendered);
-
   }
-}
 
+  return records;
+}
+function renderPrimaryList(records) {
+  const mount = document.getElementById("primary-list") || (() => {
+    const d = document.createElement("div");
+    d.id = "primary-list";
+    d.style.margin = "12px 0";
+    document.body.appendChild(d);
+    return d;
+  })();
+
+  // Replace with your card/row renderer
+  mount.innerHTML = records.map(r => {
+    const title =
+      recordCache[`${TABLE_ID}_${r.id}`] ||
+      r.fields?.Name ||
+      r.fields?.["Calendar Event Name"] ||
+      r.id;
+    return `<div class="list-row" data-id="${r.id}" style="padding:8px 10px;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:8px;">
+      <strong>${escapeHtml(title)}</strong>
+    </div>`;
+  }).join("");
+}
 
 async function preloadLinkedTables() {
   await fetchAllRecords(SUBCONTRACTOR_TABLE, ["Subcontractor Company Name", "Name"]);
@@ -351,29 +408,39 @@ async function fetchBackcharges() {
   allRecords = [];
   let offset = null;
 
-  do {
-    // ⬇️ ADDED &view=viw7ByZyxfuDLUBGY to constrain results to that view
-    let url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}?pageSize=100&view=viwTHoVVR3TsPDR6k&filterByFormula=AND(
-  {Type of Backcharge} = 'Builder Issued Backcharge',
-  OR(
-    {Approved or Dispute} = "",
-    NOT({Approved or Dispute})
-  )
-)`;
+  // Use the same VIEW + FILTER as your UI list
+  const baseFormula = FILTER_BASE_FORMULA;
 
-    if (offset) url += `&offset=${offset}`;
+  do {
+    const url =
+      `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}` +
+      `?pageSize=100` +
+      `&view=${encodeURIComponent(DEFAULT_VIEW_FOR_BG_CHECK)}` +
+      `&filterByFormula=${encodeURIComponent(baseFormula)}` +
+      (offset ? `&offset=${encodeURIComponent(offset)}` : "");
 
     const res = await fetch(url, { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } });
     if (!res.ok) break;
 
     const data = await res.json();
-    allRecords = allRecords.concat(data.records);
+    allRecords = allRecords.concat(data.records || []);
     offset = data.offset;
   } while (offset);
+
+  // ✅ First time: initialize background checker + banner DOM
+  if (!bgIntervalHandle) {
+    registerInitialRecords(allRecords);
+    ensureBannerDom();
+  } else {
+    // Keep CURRENT_RECORD_IDS in sync with what's visible now
+    CURRENT_RECORD_IDS.clear();
+    for (const r of allRecords) CURRENT_RECORD_IDS.add(r.id);
+  }
 
   populateFilterDropdowns();
   renderReviews();
 }
+
 
 /* =========================
    RENDER CARDS
@@ -1402,8 +1469,6 @@ document.addEventListener("DOMContentLoaded", () => {
 // const BASE_ID = "...";
 // const TABLE_ID = "...";
 
-/** OPTIONAL: If you filter by a specific view during normal listing, set it here to match. */
-const DEFAULT_VIEW_FOR_BG_CHECK = ""; // e.g., "viwMlo3nM8JDCIMyV" or "" to omit
 
 /** Poll interval (ms) */
 const BACKGROUND_CHECK_INTERVAL_MS = 60_000;
@@ -1443,7 +1508,8 @@ function registerInitialRecords(records) {
  */
 function startBackgroundNewRecordsCheck() {
   if (bgIntervalHandle) return;
-  bgIntervalHandle = setInterval(async () => {
+
+  const tick = async () => {
     if (bgInFlight) return;
     bgInFlight = true;
     try {
@@ -1451,71 +1517,134 @@ function startBackgroundNewRecordsCheck() {
       const updates = await fetchUpdatedRecordsSince(sinceIso);
       const unseen = updates.filter(r => !CURRENT_RECORD_IDS.has(r.id));
 
-      // If new records aren’t currently displayed, ask (or auto-load)
       if (unseen.length > 0) {
         const shouldAutoload = localStorage.getItem(LS_AUTOLOAD) === "1";
         if (shouldAutoload) {
-          // Auto-merge into UI
           renderNewRecords(unseen);
-          for (const r of unseen) CURRENT_RECORD_IDS.add(r.id);
-          showToast(`${unseen.length} new record${unseen.length>1?"s":""} auto-loaded`);
+          unseen.forEach(r => CURRENT_RECORD_IDS.add(r.id));
+          // keep your existing toast if you want; or comment out
+          console.log(`✅ Auto-loaded ${unseen.length} new record${unseen.length>1?'s':''}`);
         } else {
           showNewRecordsBanner(unseen);
         }
       }
 
-      // Advance watermark
-      localStorage.setItem(LS_LAST_CHECK_ISO, new Date().toISOString());
+      // 30s overlap to avoid missing near-boundary changes
+      const nextIso = new Date(Date.now() - 30 * 1000).toISOString();
+      localStorage.setItem(LS_LAST_CHECK_ISO, nextIso);
+
+      // restart the countdown for the next interval
+      startConsoleCountdown(BACKGROUND_CHECK_INTERVAL_MS);
     } catch (e) {
       console.error("Background check failed:", e);
     } finally {
       bgInFlight = false;
     }
-  }, BACKGROUND_CHECK_INTERVAL_MS);
+  };
+
+  // Standard heartbeat
+  bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
+
+  // Kick off quickly and show a short countdown to that first tick
+  setTimeout(tick, 1500);
+  startConsoleCountdown(1500);
+
+  // Pause timers when the tab is hidden; resume when visible
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      if (bgIntervalHandle) { clearInterval(bgIntervalHandle); bgIntervalHandle = null; }
+      stopConsoleCountdown();
+    } else {
+      if (!bgIntervalHandle) bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
+      // do an immediate tick soon after regaining focus, with a short countdown
+      setTimeout(tick, 1500);
+      startConsoleCountdown(1500);
+    }
+  });
 }
 
-/**
- * Fetch records updated after a timestamp.
- * NOTE: This uses Airtable’s formula functions in filterByFormula.
- * You can also switch to a dedicated “Last Modified” field if you prefer.
- */
+
+
+function ensureBannerDom() {
+  if (document.getElementById("new-records-banner")) return;
+  const css = document.createElement("style");
+  css.textContent = `
+    #new-records-banner{position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;display:none;background:#0f172a;color:#f8fafc;border:1px solid #1e293b;border-radius:14px;padding:12px 14px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+    #new-records-banner .nb-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    #new-records-banner .nb-msg{font-weight:600;line-height:1.2;flex:1 1 auto;min-width:180px}
+    #new-records-banner .nb-actions{display:flex;gap:8px;flex-wrap:wrap}
+    #new-records-banner button{appearance:none;border:1px solid transparent;border-radius:10px;padding:8px 12px;font-weight:600;cursor:pointer}
+    #new-records-banner .nb-load{background:#22c55e;color:#052e10;border-color:#16a34a}
+    #new-records-banner .nb-dismiss{background:#0b1220;color:#cbd5e1;border-color:#334155}
+    #new-records-banner label.nb-autoload{display:inline-flex;align-items:center;gap:8px;font-size:.9rem;opacity:.9}
+    #new-records-toast{position:fixed;right:12px;bottom:12px;z-index:9999;display:none;background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+  `;
+  document.head.appendChild(css);
+
+  const banner = document.createElement("div");
+  banner.id = "new-records-banner";
+  banner.innerHTML = `
+    <div class="nb-row">
+      <div class="nb-msg"></div>
+      <div class="nb-actions">
+        <button type="button" class="nb-load">Load</button>
+        <button type="button" class="nb-dismiss">Dismiss</button>
+        <label class="nb-autoload"><input type="checkbox" class="nb-autoload-input"> Always auto-load</label>
+      </div>
+    </div>`;
+  document.body.appendChild(banner);
+
+  const toast = document.createElement("div");
+  toast.id = "new-records-toast";
+  document.body.appendChild(toast);
+}
+
 async function fetchUpdatedRecordsSince(sinceIso) {
   const urlBase = `https://api.airtable.com/v0/${encodeURIComponent(BASE_ID)}/${encodeURIComponent(TABLE_ID)}`;
-  const headers = {
-    "Authorization": `Bearer ${AIRTABLE_API_KEY}`
-  };
+  const headers = { "Authorization": `Bearer ${AIRTABLE_API_KEY}` };
+
+  // Prefer NEW rows since 'sinceIso', but also include edits as a safety net
+  const filter = `AND(
+    ${FILTER_BASE_FORMULA},
+    OR(
+      IS_AFTER(CREATED_TIME(), DATETIME_PARSE("${sinceIso}")),
+      IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE("${sinceIso}"))
+    )
+  )`;
 
   const params = new URLSearchParams();
   params.set("pageSize", "100");
-  // Compare with LAST_MODIFIED_TIME(); Airtable will parse the ISO string
-  params.set("filterByFormula", `IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE("${sinceIso}"))`);
+  params.set("filterByFormula", filter);
   if (DEFAULT_VIEW_FOR_BG_CHECK) params.set("view", DEFAULT_VIEW_FOR_BG_CHECK);
 
   let all = [];
   let offset = null;
 
   do {
-    const thisParams = new URLSearchParams(params);
-    if (offset) thisParams.set("offset", offset);
+    const qp = new URLSearchParams(params);
+    if (offset) qp.set("offset", offset);
 
-    const res = await fetch(`${urlBase}?${thisParams.toString()}`, { headers });
+    const res = await fetch(`${urlBase}?${qp.toString()}`, { headers });
     if (!res.ok) {
       const msg = await res.text().catch(() => "");
       throw new Error(`Airtable list failed (${res.status}): ${msg}`);
     }
     const json = await res.json();
-    const recs = Array.isArray(json.records) ? json.records : [];
-    all = all.concat(recs);
+    all = all.concat(json.records || []);
     offset = json.offset;
   } while (offset);
 
   return all;
 }
 
+
+
 /**
  * Minimal banner UI: asks user to load unseen records.
  */
 function showNewRecordsBanner(unseenRecords) {
+  ensureBannerDom();
+
   const banner = document.getElementById("new-records-banner");
   const msg = banner.querySelector(".nb-msg");
   const btnLoad = banner.querySelector(".nb-load");
@@ -1526,7 +1655,6 @@ function showNewRecordsBanner(unseenRecords) {
   autoloadChk.checked = (localStorage.getItem(LS_AUTOLOAD) === "1");
   banner.style.display = "block";
 
-  // Clean previous handlers
   btnLoad.replaceWith(btnLoad.cloneNode(true));
   btnDismiss.replaceWith(btnDismiss.cloneNode(true));
   const newLoad = banner.querySelector(".nb-load");
@@ -1534,7 +1662,7 @@ function showNewRecordsBanner(unseenRecords) {
 
   newLoad.addEventListener("click", () => {
     renderNewRecords(unseenRecords);
-    for (const r of unseenRecords) CURRENT_RECORD_IDS.add(r.id);
+    unseenRecords.forEach(r => CURRENT_RECORD_IDS.add(r.id));
     banner.style.display = "none";
   });
 
@@ -1547,6 +1675,7 @@ function showNewRecordsBanner(unseenRecords) {
   }, { once: true });
 }
 
+
 /** Tiny toast for auto-loaded case */
 function showToast(text, ms = 3000) {
   const el = document.getElementById("new-records-toast");
@@ -1556,30 +1685,26 @@ function showToast(text, ms = 3000) {
   el._t = setTimeout(() => { el.style.display = "none"; }, ms);
 }
 
-/**
- * 🔧 IMPLEMENT ME: merge new records into your existing UI.
- * You likely already have a renderer; just call it here.
- * Example below assumes you have a function addRecordCard(record)
- * or re-run your list render with the merged dataset.
- */
+
 function renderNewRecords(records) {
   try {
-    // EXAMPLE: If you keep a global array: window.ALL_RECORDS
-    // window.ALL_RECORDS = window.ALL_RECORDS.concat(records);
-    // rerenderList(window.ALL_RECORDS);
+    if (!Array.isArray(records) || records.length === 0) return;
 
-    // Placeholder: log + NO-OP to avoid breaking anything.
-    console.log(`Render ${records.length} new record(s):`, records);
-    // TODO: Replace with your actual renderer:
-    // records.forEach(addRecordCard);
+    // Merge unique-by-id
+    const seen = new Set(allRecords.map(r => r.id));
+    const toAdd = records.filter(r => r && r.id && !seen.has(r.id));
+    if (toAdd.length === 0) return;
+
+    allRecords = allRecords.concat(toAdd);
+
+    // Keep filters/dropdowns fresh and re-render cards
+    populateFilterDropdowns();
+    renderReviews();
   } catch (e) {
     console.error("renderNewRecords error:", e);
   }
 }
 
-/* =========================
-   HOW TO WIRE THIS UP
-   1) After your first fetch + render:
-        registerInitialRecords(firstPageOrAllRecordsArray);
-   2) That’s it. The background checker will run every minute.
-========================= */
+
+
+
