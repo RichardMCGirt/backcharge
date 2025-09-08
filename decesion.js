@@ -7,13 +7,13 @@ const TABLE_ID         = "tblg98QfBxRd6uivq"; // e.g., main backcharge/warranty 
 
 // Field names in your base
 const FIELD_JOB_NAME    = "Job Name";
-const FIELD_GM_OUTCOME  = "GM Outcome"; // must match Airtable exactly
+const FIELD_GM_OUTCOME  = "GM/ACM Outcome"; // must match Airtable exactly
 const FIELD_ID_NUMBER   = "ID Number";  // must match Airtable exactly
 
 // Allowed values for GM Outcome edit control
 const GM_OPTIONS = [
-  "GM Approved BC from Builder",
-  "GM Denied BC from Builder"
+  "GM/ACM Approved",
+  "GM/ACM Denied"
 ];
 
 /* =========================
@@ -49,7 +49,12 @@ async function fetchAll() {
 }
 
 /* =========================
-   PATCH to Airtable (GM Outcome)
+   STATE (add this near top with other state)
+========================= */
+const lastSavedValue = new Map(); // recordId -> last successfully saved GM Outcome
+
+/* =========================
+   PATCH to Airtable (GM Outcome) — REPLACE YOUR FUNCTION WITH THIS
 ========================= */
 async function patchOutcome(recordId, newValue) {
   // Cancel any in-flight save for this record
@@ -60,37 +65,92 @@ async function patchOutcome(recordId, newValue) {
   pendingSaves.set(recordId, controller);
 
   try {
-    const res = await fetch(`https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_ID)}/${recordId}`, {
+    const url = `https://api.airtable.com/v0/${BASE_ID}/${encodeURIComponent(TABLE_ID)}/${recordId}`;
+    const body = JSON.stringify({ fields: { [FIELD_GM_OUTCOME]: newValue } });
+
+    const res = await fetch(url, {
       method: "PATCH",
       headers: {
         Authorization: `Bearer ${AIRTABLE_API_KEY}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ fields: { [FIELD_GM_OUTCOME]: newValue } }),
+      body,
       signal: controller.signal
     });
 
+    const text = await res.text(); // read text so we can log/parse errors from Airtable
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Airtable error ${res.status}: ${txt || res.statusText}`);
+      let errMsg = `HTTP ${res.status}`;
+      try {
+        const json = JSON.parse(text);
+        if (json?.error?.message) errMsg += ` — ${json.error.message}`;
+        if (json?.error?.type) errMsg += ` [${json.error.type}]`;
+      } catch {
+        if (text) errMsg += ` — ${text}`;
+      }
+      console.error("PATCH failed:", errMsg, { url, body });
+      throw new Error(errMsg);
     }
-    const updated = await res.json();
+
+    // Parse updated record
+    const updated = JSON.parse(text);
 
     // Update local cache
     const idx = allRecords.findIndex(r => r.id === recordId);
-    if (idx !== -1) {
-      allRecords[idx] = updated;
-    }
+    if (idx !== -1) allRecords[idx] = updated;
+
+    // Remember last good value for this record
+    lastSavedValue.set(recordId, updated.fields?.[FIELD_GM_OUTCOME] ?? "");
+
     return { ok: true };
   } catch (err) {
     if (err.name === "AbortError") return { ok: false, aborted: true };
     return { ok: false, error: err.message || String(err) };
   } finally {
-    // Clear controller if still ours
     const cur = pendingSaves.get(recordId);
     if (cur === controller) pendingSaves.delete(recordId);
   }
 }
+
+/* =========================
+   Save handler — REPLACE YOUR handleSave WITH THIS
+========================= */
+async function handleSave(selectEl, statusEl) {
+  const recordId = selectEl.dataset.id;
+  const value = selectEl.value;
+
+  // If user didn’t actually change the value, don’t PATCH
+  const currentInCache = allRecords.find(r => r.id === recordId)?.fields?.[FIELD_GM_OUTCOME] ?? "";
+  if (String(currentInCache) === String(value)) {
+    return;
+  }
+
+  statusEl.textContent = "Saving…";
+  statusEl.className = "status saving";
+
+  const { ok, error, aborted } = await patchOutcome(recordId, value);
+  if (ok) {
+    statusEl.textContent = "Saved";
+    statusEl.className = "status saved";
+  } else if (aborted) {
+    // superseded by a newer save
+  } else {
+    statusEl.textContent = `Error: ${error || "Failed to save"}`;
+    statusEl.className = "status error";
+
+    // Revert UI to last saved value if we have one
+    const last = lastSavedValue.get(recordId);
+    if (last !== undefined) {
+      selectEl.value = last;
+    }
+  }
+
+  setTimeout(() => {
+    statusEl.textContent = "";
+    statusEl.className = "status muted";
+  }, 1800);
+}
+
 
 /* =========================
    RENDER
@@ -179,31 +239,7 @@ function render() {
   countsEl.textContent = `Showing ${rows.length} record(s) — Approved: ${approvedCount} · Dispute/Disputed: ${disputedCount}${otherCount ? ` · Other/Blank: ${otherCount}` : ""}`;
 }
 
-async function handleSave(selectEl, statusEl) {
-  const recordId = selectEl.dataset.id;
-  const value = selectEl.value;
 
-  // Optimistic status hint
-  statusEl.textContent = "Saving…";
-  statusEl.className = "status saving";
-
-  const { ok, error, aborted } = await patchOutcome(recordId, value);
-  if (ok) {
-    statusEl.textContent = "Saved";
-    statusEl.className = "status saved";
-  } else if (aborted) {
-    // Another save superseded this one; do nothing visible
-  } else {
-    statusEl.textContent = `Error: ${error || "Failed to save"}`;
-    statusEl.className = "status error";
-  }
-
-  // Fade status after a moment
-  setTimeout(() => {
-    statusEl.textContent = "";
-    statusEl.className = "status muted";
-  }, 1500);
-}
 
 /* =========================
    HELPERS
