@@ -24,6 +24,7 @@ const FILTER_BASE_FORMULA = `AND(
   )
 )`;
 
+
 // Cache & State
 const recordCache = {};            // `${tableId}_${recId}` -> displayName
 const tableRecords = {};
@@ -61,6 +62,13 @@ let disputeVendorDisplay = null;
 /* =========================
    UTIL / UI HELPERS
 ========================= */
+function isBlank(v){ return v == null || (typeof v === "string" && v.trim() === ""); }
+function recordMatchesScope(rec){
+  const f = rec?.fields || {};
+  return f["Type of Backcharge"] === "Builder Issued Backcharge"
+      && isBlank(f["Approved or Dispute"]);
+}
+
 function startConsoleCountdown(durationMs) {
   stopConsoleCountdown();
   const pad = (n) => String(n).padStart(2, "0");
@@ -71,6 +79,8 @@ function startConsoleCountdown(durationMs) {
     const totalSec = Math.ceil(remaining / 1000);
     const mm = Math.floor(totalSec / 60);
     const ss = totalSec % 60;
+    // log a single line each second
+    console.log(`⏳ Next background fetch in ${pad(mm)}:${pad(ss)}`);
     if (remaining <= 0) stopConsoleCountdown();
   };
 
@@ -1509,23 +1519,39 @@ function startBackgroundNewRecordsCheck() {
   if (bgIntervalHandle) return;
 
   const tick = async () => {
+    stopConsoleCountdown(); // pause countdown while we work
+
     if (bgInFlight) return;
     bgInFlight = true;
     try {
       const sinceIso = localStorage.getItem(LS_LAST_CHECK_ISO) || INITIAL_LOAD_ISO;
+      console.log("🔎 Background fetch starting… (since:", sinceIso, ")");
       const updates = await fetchUpdatedRecordsSince(sinceIso);
-      const unseen = updates.filter(r => !CURRENT_RECORD_IDS.has(r.id));
 
-      if (unseen.length > 0) {
-const shouldAutoload = FORCE_AUTOLOAD || (localStorage.getItem(LS_AUTOLOAD) === "1");
+      // figure out what to add/remove based on *current* field values
+      const toAdd = updates.filter(r => recordMatchesScope(r) && !CURRENT_RECORD_IDS.has(r.id));
+      const toRemove = updates.filter(r => !recordMatchesScope(r) && CURRENT_RECORD_IDS.has(r.id));
+
+      // ADD: only records that still match our scope (Approved/Dispute empty)
+      if (toAdd.length > 0) {
+        const shouldAutoload = FORCE_AUTOLOAD || (localStorage.getItem(LS_AUTOLOAD) === "1");
         if (shouldAutoload) {
-          renderNewRecords(unseen);
-          unseen.forEach(r => CURRENT_RECORD_IDS.add(r.id));
-          // Optional console note:
-          console.log(`✅ Auto-loaded ${unseen.length} new record${unseen.length>1?'s':''}`);
+          renderNewRecords(toAdd);
+          toAdd.forEach(r => CURRENT_RECORD_IDS.add(r.id));
+          console.log(`✅ Auto-loaded ${toAdd.length} new record${toAdd.length>1?'s':''}`);
         } else {
-          showNewRecordsBanner(unseen);
+          showNewRecordsBanner(toAdd);
         }
+      }
+
+      // PRUNE: anything that no longer matches scope (now approved/disputed)
+      if (toRemove.length > 0) {
+        const ids = new Set(toRemove.map(r => r.id));
+        allRecords = allRecords.filter(r => !ids.has(r.id));
+        ids.forEach(id => CURRENT_RECORD_IDS.delete(id));
+        populateFilterDropdowns();
+        renderReviews();
+        console.log(`🧹 Removed ${toRemove.length} record${toRemove.length>1?'s':''} that left scope`);
       }
 
       // 30s overlap to avoid missing near-boundary updates
@@ -1535,11 +1561,29 @@ const shouldAutoload = FORCE_AUTOLOAD || (localStorage.getItem(LS_AUTOLOAD) === 
       console.error("Background check failed:", e);
     } finally {
       bgInFlight = false;
+      startConsoleCountdown(BACKGROUND_CHECK_INTERVAL_MS); // restart countdown to next tick
     }
   };
 
   bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
-  setTimeout(tick, 1500); // quick first run
+  setTimeout(tick, 1500);           // quick first run
+  startConsoleCountdown(1500);      // and a short countdown to it
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      if (bgIntervalHandle) { clearInterval(bgIntervalHandle); bgIntervalHandle = null; }
+      stopConsoleCountdown();
+    } else {
+      if (!bgIntervalHandle) bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
+      setTimeout(tick, 1500);
+      startConsoleCountdown(1500);
+    }
+  });
+
+  bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
+  // quick first run + a short countdown to it
+  setTimeout(tick, 1500);
+  startConsoleCountdown(1500);
 
   // Pause timers when the tab is hidden; resume when visible
   document.addEventListener("visibilitychange", () => {
@@ -1548,11 +1592,18 @@ const shouldAutoload = FORCE_AUTOLOAD || (localStorage.getItem(LS_AUTOLOAD) === 
       stopConsoleCountdown();
     } else {
       if (!bgIntervalHandle) bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
-      // do an immediate tick soon after regaining focus, with a short countdown
       setTimeout(tick, 1500);
       startConsoleCountdown(1500);
     }
   });
+}
+
+function showBgToast(text, ms = 3000) {
+  const el = document.getElementById("new-records-toast");
+  el.textContent = text;
+  el.style.display = "block";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.display = "none"; }, ms);
 }
 
 
@@ -1595,19 +1646,15 @@ async function fetchUpdatedRecordsSince(sinceIso) {
   const urlBase = `https://api.airtable.com/v0/${encodeURIComponent(BASE_ID)}/${encodeURIComponent(TABLE_ID)}`;
   const headers = { "Authorization": `Bearer ${AIRTABLE_API_KEY}` };
 
-  // Prefer NEW rows since 'sinceIso', but also include edits as a safety net
-  const filter = `AND(
-    ${FILTER_BASE_FORMULA},
-    OR(
-      IS_AFTER(CREATED_TIME(), DATETIME_PARSE("${sinceIso}")),
-      IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE("${sinceIso}"))
-    )
+  const filter = `OR(
+    IS_AFTER(CREATED_TIME(), DATETIME_PARSE("${sinceIso}")),
+    IS_AFTER(LAST_MODIFIED_TIME(), DATETIME_PARSE("${sinceIso}"))
   )`;
 
   const params = new URLSearchParams();
   params.set("pageSize", "100");
   params.set("filterByFormula", filter);
-  if (DEFAULT_VIEW_FOR_BG_CHECK) params.set("view", DEFAULT_VIEW_FOR_BG_CHECK);
+  // IMPORTANT: do NOT pass a view here — we need to see rows that moved out of scope.
 
   let all = [];
   let offset = null;
@@ -1628,6 +1675,7 @@ async function fetchUpdatedRecordsSince(sinceIso) {
 
   return all;
 }
+
 
 
 
