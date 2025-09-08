@@ -758,7 +758,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   const backdrop = document.getElementById("sheetBackdrop");
 
   ensureDisputeForm(sheet);
-  // Show sheet form for BOTH decisions now
+  // Show sheet form for BOTH decisions
   disputeFormContainer.style.display = "block";
   sheet.classList.toggle("dispute-mode", decision === "Dispute");
 
@@ -773,12 +773,12 @@ function openDecisionSheet(recordId, jobName, decision) {
   buildSubcontractorOptions(disputeSubSelect);
   buildVendorOptions(disputeVendorSelect);
 
-  // Prefill vendor select from link field
-  const vendorIds = Array.isArray(rec?.fields?.["Vendor to backcharge"]) ? rec.fields["Vendor to backcharge"] : [];
+  // Resolve the vendor link field name and prefill
+  const vendorLinkFieldName = pickFieldName(rec?.fields || {}, ["Vendor to backcharge", "Vendor Brick and Mortar Location"]);
+  const vendorIds = Array.isArray(rec?.fields?.[vendorLinkFieldName]) ? rec.fields[vendorLinkFieldName] : [];
   if (disputeVendorSelect) {
     disputeVendorSelect.value = "";
     if (vendorIds.length) {
-      // pick first vendor
       const vid = vendorIds[0];
       const optExists = [...disputeVendorSelect.options].some(o => o.value === vid);
       if (!optExists && vid) {
@@ -791,7 +791,7 @@ function openDecisionSheet(recordId, jobName, decision) {
     }
   }
 
-  // Prefill subcontractor select from link field
+  // Prefill subcontractor select
   const subIds = Array.isArray(rec?.fields?.["Subcontractor to Backcharge"]) ? rec.fields["Subcontractor to Backcharge"] : [];
   if (disputeSubSelect) {
     disputeSubSelect.value = "";
@@ -808,28 +808,33 @@ function openDecisionSheet(recordId, jobName, decision) {
     }
   }
 
-  // Prefill reason and amount
+  // Prefill reason + amounts
   const reasonFieldName = pickFieldName(rec?.fields || {}, ["Reason for dispute"]);
   const originalReason = rec?.fields?.[reasonFieldName] || "";
+
   const originalBackcharge = rec?.fields?.["Backcharge Amount"];
+  const originalVendorAmt  = rec?.fields?.["Vendor Amount to Backcharge"];
 
   if (disputeReasonInput) {
     disputeReasonInput.value = originalReason || "";
     disputeReasonInput.placeholder = "(No reason on record)";
   }
 
+  // Sub amount (Backcharge Amount)
   if (originalBackcharge == null || originalBackcharge === "") {
     disputeAmountInput.value = "";
-    disputeVendorAmountInput.value = "";
   } else {
-    const fmt = formatUSD(originalBackcharge);
-    disputeAmountInput.value = fmt;
-    disputeVendorAmountInput.value = fmt;
+    disputeAmountInput.value = formatUSD(originalBackcharge);
   }
 
-  // In APPROVE mode: allow editing BOTH rows freely
-  // In DISPUTE mode: keep both editable too (you preferred vendor when location existed previously,
-  // but now you asked to be able to edit both; so we keep both visible).
+  // Vendor amount (Vendor Amount to Backcharge)
+  if (originalVendorAmt == null || originalVendorAmt === "") {
+    disputeVendorAmountInput.value = "";
+  } else {
+    disputeVendorAmountInput.value = formatUSD(originalVendorAmt);
+  }
+
+  // Keep both rows visible/editable in both modes
   const primaryRowEl = disputeFormContainer.querySelector("#bf-primary-sub-row");
   const vendorRowEl  = disputeFormContainer.querySelector("#bf-vendor-row");
   primaryRowEl?.classList.remove("bf-hidden");
@@ -839,7 +844,6 @@ function openDecisionSheet(recordId, jobName, decision) {
 
   approveBtn.classList.toggle("attn", decision === "Approved");
   disputeBtn.classList.toggle("attn", decision === "Dispute");
-
   approveBtn.textContent = "✔ Approved";
   disputeBtn.textContent = "✖ Dispute";
 
@@ -855,6 +859,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   document.addEventListener("keydown", onSheetEsc);
 }
 
+
 /* =========================
    BOTTOM SHEET CONFIRM
 ========================= */
@@ -867,7 +872,6 @@ function ensureBackchargeFormStyles() {
     #disputeFormContainer .bf-grid {
       display: grid;
       width: 100%;
-      /* Make dropdown (col 1) wider by narrowing the amount column (col 2) */
       grid-template-columns: minmax(0, 1fr) 140px;
       gap: 10px 14px;
       align-items: start;
@@ -883,7 +887,7 @@ function ensureBackchargeFormStyles() {
       text-align: right;
       align-self: center;
       padding-right: 4px;
-      white-space: nowrap; /* keep "Amount" on one line in the narrower column */
+      white-space: nowrap;
     }
     #disputeFormContainer .bf-display {
       border: 1px solid #e5e7eb;
@@ -901,40 +905,29 @@ function ensureBackchargeFormStyles() {
       font-size: 14px;
       box-sizing: border-box;
     }
-    /* Make the number input visually tighter */
     #disputeFormContainer #disputeAmountInput {
-      text-align: right;      /* typical for amounts */
-      padding-right: 10px;    /* keep cursor clear of border */
+      text-align: right;
+      padding-right: 10px;
     }
-
     #disputeFormContainer textarea {
       min-height: 72px;
       resize: vertical;
       line-height: 1.3;
     }
-
-    /* group rows for show/hide */
     #disputeFormContainer .bf-row { display: contents; }
     #disputeFormContainer .bf-hidden { display: none !important; }
-
-    /* Reason row spans full width (both grid columns) */
     #disputeFormContainer .bf-reason {
       grid-template-columns: 80px 1fr;
       gap: 8px;
       align-items: start;
       grid-column: 1 / -1;
     }
-
-    /* hide vendor amount input */
-    #disputeFormContainer #disputeVendorAmountInput { display: none !important; }
-
-    /* Mobile tweaks: make amount column even narrower so the dropdown gets max width */
     @media (max-width: 640px) {
       #disputeFormContainer .bf-grid {
         grid-template-columns: minmax(0, 1fr) 120px;
       }
       #disputeFormContainer .bf-reason {
-        grid-template-columns: 1fr; /* label above textarea on small screens */
+        grid-template-columns: 1fr;
       }
       #disputeFormContainer .bf-reason label {
         margin-bottom: 6px;
@@ -944,9 +937,6 @@ function ensureBackchargeFormStyles() {
   `;
   document.head.appendChild(style);
 }
-
-
-
 
 /* =========================
    DISPUTE/APPROVE FORM (grid-aligned)
@@ -977,14 +967,16 @@ function ensureDisputeForm(sheet) {
     <!-- Row: Vendor (editable) -->
     <div id="bf-vendor-row" class="bf-row">
       <label for="disputeVendorSelect">Vendor to Backcharge</label>
-      <label class="bf-amount-label" for="disputeVendorAmountInput"></label>
+      <label class="bf-amount-label" for="disputeVendorAmountInput">Vendor Amount to Backcharge</label>
 
       <select id="disputeVendorSelect">
         <option value="">— None —</option>
       </select>
       <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
     </div>
-<br>
+
+    <br>
+
     <!-- Row: Reason (full width) -->
     <div class="bf-reason">
       <label for="disputeReasonInput">Reason</label>
@@ -994,7 +986,7 @@ function ensureDisputeForm(sheet) {
   </div>
 `;
 
-    // Wire references back to your globals
+    // Wire references
     disputeSubSelect          = disputeFormContainer.querySelector("#disputeSubSelect");
     disputeAmountInput        = disputeFormContainer.querySelector("#disputeAmountInput");
 
@@ -1024,6 +1016,7 @@ function ensureDisputeForm(sheet) {
     sheet.appendChild(disputeFormContainer);
   }
 }
+
 
 // Build subcontractor options from preloaded table
 function buildSubcontractorOptions(selectEl) {
@@ -1163,7 +1156,7 @@ async function confirmDecision(decision) {
   // Always set the decision
   const fieldsToPatch = { "Approved or Dispute": decision };
 
-  // We now allow editing sub/vendor/amount for BOTH Approve and Dispute
+  // Allow editing sub/vendor/amount for BOTH Approve and Dispute
   const rec = getRecordById(pendingRecordId);
 
   // Gather selections
@@ -1174,10 +1167,10 @@ async function confirmDecision(decision) {
   const subAmtRaw    = disputeAmountInput?.value?.trim() || "";
   const vendorAmtRaw = disputeVendorAmountInput?.value?.trim() || "";
 
-  const subAmtParsed    = subAmtRaw ? parseCurrencyInput(subAmtRaw) : null;
+  const subAmtParsed    = subAmtRaw ? parseCurrencyInput(subAmtRaw)    : null;
   const vendorAmtParsed = vendorAmtRaw ? parseCurrencyInput(vendorAmtRaw) : null;
 
-  // Choose which amount to save:
+  // Choose which amount to save to Backcharge Amount:
   // If a vendor is selected, prefer vendor amount; else if a sub is selected, use sub amount; else null.
   let amountToSave = null;
   if (selectedVendorId) {
@@ -1185,7 +1178,6 @@ async function confirmDecision(decision) {
   } else if (selectedSubId) {
     amountToSave = subAmtParsed;
   } else {
-    // nothing selected; allow null
     amountToSave = null;
   }
 
@@ -1202,12 +1194,20 @@ async function confirmDecision(decision) {
 
   // Patch link fields
   fieldsToPatch["Subcontractor to Backcharge"] = selectedSubId ? [selectedSubId] : [];
-  fieldsToPatch["Vendor Brick and Mortar Location"]        = selectedVendorId ? [selectedVendorId] : [];
 
-  // Patch amount (single field)
+  // Resolve which vendor link field this base uses and patch it
+  const vendorLinkFieldName = pickFieldName(rec?.fields || {}, ["Vendor to backcharge", "Vendor Brick and Mortar Location"]);
+  fieldsToPatch[vendorLinkFieldName] = selectedVendorId ? [selectedVendorId] : [];
+
+  // Patch the unified Backcharge Amount
   fieldsToPatch["Backcharge Amount"] = amountToSave == null ? null : amountToSave;
 
-  // Only patch "Reason for dispute" when Dispute (keeps Approve lightweight)
+  // Patch the dedicated Vendor Amount to Backcharge (if present on the record schema)
+  if ("Vendor Amount to Backcharge" in (rec?.fields || {})) {
+    fieldsToPatch["Vendor Amount to Backcharge"] = vendorAmtParsed == null ? null : vendorAmtParsed;
+  }
+
+  // Only patch "Reason for dispute" when Dispute
   if (decision === "Dispute") {
     const reasonFieldName = pickFieldName(rec?.fields || {}, ["Reason for dispute"]);
     const editedReason = (disputeReasonInput?.value ?? "").trim();
@@ -1256,6 +1256,7 @@ async function confirmDecision(decision) {
     console.log("🏁 confirmDecision finished");
   }
 }
+
 
 /* =========================
    FILTER DROPDOWNS
