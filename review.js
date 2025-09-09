@@ -1276,9 +1276,10 @@ async function confirmDecision(decision) {
   fieldsToPatch["Backcharge Amount"] = subAmtParsed == null ? null : subAmtParsed;
 
   // Only patch Vendor Amount to Backcharge if schema has it (avoid 422 on bases without it)
-  if ("Vendor Amount to Backcharge" in (rec?.fields || {})) {
-    fieldsToPatch["Vendor Amount to Backcharge"] = vendorAmtParsed == null ? null : vendorAmtParsed;
-  }
+ // Always send it; Airtable omits empty fields from reads, but you can still write them.
+fieldsToPatch["Vendor Amount to Backcharge"] =
+  vendorAmtParsed == null ? null : vendorAmtParsed;
+
 
   // Only patch "Reason for dispute" when Dispute
   if (decision === "Dispute") {
