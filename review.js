@@ -5,17 +5,14 @@ const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f
 const BASE_ID = "appQDdkj6ydqUaUkE";
 const TABLE_ID = "tblg98QfBxRd6uivq";
 
-// Linked tables
 const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb"; // “Subcontractor Company Name”
 const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU"; // “Client Name”
 const TECH_TABLE          = "tblj6Fp0rvN7QyjRv"; // “Full Name”
 const BRANCH_TABLE        = "tblD2gLfkTtJYIhmK"; // “Office Name”
 const VENDOR_TABLE        = "tblp77wpnsiIjJLGh"; // Vendor table used by "Vendor to backcharge"
-// Reuse your main list scope everywhere
 const DEFAULT_VIEW_FOR_BG_CHECK = "viwTHoVVR3TsPDR6k";
 let bgCountdownHandle = null;
 
-// Keep one copy of your base list formula to use in both places
 const FILTER_BASE_FORMULA = `AND(
   {Type of Backcharge} = 'Builder Issued Backcharge',
   OR(
@@ -24,40 +21,31 @@ const FILTER_BASE_FORMULA = `AND(
   )
 )`;
 
-
 // Cache & State
-const recordCache = {};            // `${tableId}_${recId}` -> displayName
+const recordCache = {};            
 const tableRecords = {};
 const FORCE_AUTOLOAD = true;
-           // tableId -> full records[]
+       
 let allRecords = []; 
 let activeTechFilter = null;
 let activeBranchFilter = null;
 let hasRestoredFilters = false;
-
 let pendingDecision = null;
 let pendingRecordId = null;
 let pendingRecordName = null;
-let pendingRecordIdNumber = null; // <-- store ID Number for UI + toast
+let pendingRecordIdNumber = null;
 let lastActiveCardId = null;
-
-// Dispute/Approve form elements (created once, reused)
 let disputeFormContainer = null;
-let disputeReasonInput = null;           // editable original reason
-let disputeSubSelect = null;             // NEW: keep reference
-let disputeVendorSelect = null;          // NEW: vendor select (editable)
-
-// Amount inputs (each maps to its own field now)
-// 🔧 CHANGED: clarify mapping in comment
-let disputeAmountInput = null;           // maps to "Backcharge Amount" (sub amount)
-let disputeVendorAmountInput = null;     // maps to "Vendor Amount to Backcharge" (vendor amount)
-
-// Secondary Subcontractor amount (optional, separate field(s) in base)
+let disputeReasonInput = null;           
+let disputeSubSelect = null;             
+let disputeVendorSelect = null;          
+let disputeAmountInput = null;           
+let disputeVendorAmountInput = null;     
 let disputeAmount2Input = null;
-
-// Read-only (no longer used for vendor name only)
-// Kept for compatibility if needed elsewhere
 let disputeVendorDisplay = null;
+let subReasonInput = null;       
+let vendorReasonInput = null;    
+let updateConditionalReasonsUI = null;
 
 /* =========================
    UTIL / UI HELPERS
@@ -79,8 +67,6 @@ function startConsoleCountdown(durationMs) {
     const totalSec = Math.ceil(remaining / 1000);
     const mm = Math.floor(totalSec / 60);
     const ss = totalSec % 60;
-    // log a single line each second
-    console.log(`⏳ Next background fetch in ${pad(mm)}:${pad(ss)}`);
     if (remaining <= 0) stopConsoleCountdown();
   };
 
@@ -94,7 +80,6 @@ function stopConsoleCountdown() {
     bgCountdownHandle = null;
   }
 }
-
 
 function looksLikeLinkedIds(arr) {
   if (!Array.isArray(arr) || arr.length === 0) return false;
@@ -201,7 +186,6 @@ function getLinkedRecords(tableId, fieldVal) {
               hit.fields["Company"] ||
               hit.fields["Company Name"] ||
               hit.fields["Display Name"] ||
-              // fall back to first non-empty string in the record
               Object.values(hit.fields).find(x => typeof x === "string" && x.trim().length) ||
               v;
             recordCache[`${tableId}_${v}`] = name;
@@ -213,7 +197,6 @@ function getLinkedRecords(tableId, fieldVal) {
     })
     .filter(x => x.name);
 }
-
 
 // Convenience getters
 function getTechNamesFromRecord(rec) {
@@ -275,6 +258,7 @@ async function fetchAllRecords(tableId, keyFields) {
 
   return records;
 }
+
 function renderPrimaryList(records) {
   const mount = document.getElementById("primary-list") || (() => {
     const d = document.createElement("div");
@@ -402,7 +386,6 @@ function applyFiltersFromURLOrStorage(){
   renderReviews();
 }
 
-/* When filters/search change, keep the URL in sync */
 function updateURLFromCurrentFilters(){
   const searchBar = document.getElementById("searchBar");
   setURLParams({
@@ -451,7 +434,6 @@ async function fetchBackcharges() {
   populateFilterDropdowns();
   renderReviews();
 }
-
 
 /* =========================
    RENDER CARDS
@@ -508,7 +490,7 @@ function renderReviews() {
 
       const idNumber = (rec.fields["ID Number"] ?? "").toString().toLowerCase();
 
-      const vendorNames = getLinkedRecords(VENDOR_TABLE, rec.fields["Vendor to backcharge"] || [])
+      const vendorNames = getLinkedRecords(VENDOR_TABLE, rec.fields["Vendor Brick and Mortar Location"] || [])
         .map(v => v.name)
         .join(", ")
         .toLowerCase();
@@ -529,12 +511,12 @@ function renderReviews() {
   records.forEach(record => {
     const fields = record.fields;
     const jobName = fields["Job Name"] || "";
-    const reasonFieldName = pickFieldName(fields, [ "Reason for Backcharge"]);
+    const reasonFieldName = pickFieldName(fields, ["Reason for Builder Backcharge"]);
     const reason = fields[reasonFieldName] || "";
     const idNumber = fields["ID Number"];
 
     // 🔧 CHANGED: show amounts separately (sub vs vendor)
-    const subBackcharge = fields["Backcharge Amount"];
+    const subBackcharge = fields["Sub Backcharge Amount"];
     const vendorBackcharge = fields["Vendor Amount to Backcharge"];
 
     let subAmtChip = "";
@@ -566,7 +548,7 @@ function renderReviews() {
     const photoCount = photos.length;
 
     // Vendor(s) chip
-    const vendors = getLinkedRecords(VENDOR_TABLE, fields["Vendor to backcharge"] || []);
+    const vendors = getLinkedRecords(VENDOR_TABLE, fields["Name"] || []);
     const vendorLinksHtml = vendors.map(v => {
       const safeName = escapeHtml(v.name);
       if (v.id) {
@@ -843,7 +825,6 @@ function openDecisionSheet(recordId, jobName, decision) {
   buildVendorOptions(disputeVendorSelect);
 
   // Resolve the vendor link field name and prefill
-  // 🔧 CHANGED: prefer linked-record field automatically
   const vendorLinkFieldName = getVendorLinkFieldNameForPatch(rec);
   const vendorIds = Array.isArray(rec?.fields?.[vendorLinkFieldName]) ? rec.fields[vendorLinkFieldName] : [];
   if (disputeVendorSelect) {
@@ -882,7 +863,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   const reasonFieldName = pickFieldName(rec?.fields || {}, ["Reason for dispute"]);
   const originalReason = rec?.fields?.[reasonFieldName] || "";
 
-  const originalBackcharge = rec?.fields?.["Backcharge Amount"];
+  const originalBackcharge = rec?.fields?.["Sub Backcharge Amount"];
   const originalVendorAmt  = rec?.fields?.["Vendor Amount to Backcharge"];
 
   if (disputeReasonInput) {
@@ -904,6 +885,30 @@ function openDecisionSheet(recordId, jobName, decision) {
     disputeVendorAmountInput.value = formatUSD(originalVendorAmt);
   }
 
+  // Prefill conditional backcharge reason fields (if those columns exist)
+  const recFields = rec?.fields || {};
+
+  // Sub backcharge reason: prefer an explicit sub backcharge field, fallback to generic if that’s what your base uses
+  const subReasonFieldName =
+    ["Sub Reason for Backcharge"]
+      .find(k => Object.prototype.hasOwnProperty.call(recFields, k)) || null;
+
+  if (subReasonInput) {
+    subReasonInput.value = subReasonFieldName ? (recFields[subReasonFieldName] || "") : "";
+  }
+
+  // Vendor backcharge reason: handle a few likely schemas, only prefill if present
+  const vendorReasonFieldName =
+    ["Vendor Backcharge Reason"]
+      .find(k => Object.prototype.hasOwnProperty.call(recFields, k)) || null;
+
+  if (vendorReasonInput) {
+    vendorReasonInput.value = vendorReasonFieldName ? (recFields[vendorReasonFieldName] || "") : "";
+  }
+
+  // Ensure visibility/required state matches current selections and amounts
+  try { updateConditionalReasonsUI && updateConditionalReasonsUI(); } catch {}
+
   // Keep both rows visible/editable in both modes
   const primaryRowEl = disputeFormContainer.querySelector("#bf-primary-sub-row");
   const vendorRowEl  = disputeFormContainer.querySelector("#bf-vendor-row");
@@ -912,7 +917,7 @@ function openDecisionSheet(recordId, jobName, decision) {
   if (disputeAmountInput) disputeAmountInput.disabled = false;
   if (disputeVendorAmountInput) disputeVendorAmountInput.disabled = false;
 
-  approveBtn.classList.toggle("attn", decision === "Approved");
+  approveBtn.classList.toggle("attn", decision === "Approve");   // FIXED
   disputeBtn.classList.toggle("attn", decision === "Dispute");
   approveBtn.textContent = "✔ Approved";
   disputeBtn.textContent = "✖ Dispute";
@@ -946,6 +951,8 @@ function ensureBackchargeFormStyles() {
       align-items: start;
       box-sizing: border-box;
     }
+      #disputeFormContainer .bf-reason label .asterisk { opacity:.9; }
+
     #disputeFormContainer label {
       font-weight: 600;
       align-self: center;
@@ -1044,13 +1051,25 @@ function ensureDisputeForm(sheet) {
       <input id="disputeVendorAmountInput" type="text" inputmode="decimal" placeholder="$0.00" />
     </div>
 
+        <!-- Row: Sub Reason (conditional full width) -->
+    <div id="bf-sub-reason-row" class="bf-reason bf-hidden">
+      <label for="subReasonInput">
+        Subcontractor Reason <span class="asterisk">*</span>
+      </label>
+      <textarea id="subReasonInput" placeholder="Required when a Subcontractor amount is entered"></textarea>
+    </div>
+
+    <!-- Row: Vendor Reason (conditional full width) -->
+    <div id="bf-vendor-reason-row" class="bf-reason bf-hidden">
+      <label for="vendorReasonInput">
+        Vendor Reason <span class="asterisk">*</span>
+      </label>
+      <textarea id="vendorReasonInput" placeholder="Required when a Vendor amount is entered"></textarea>
+    </div>
+
     <br>
 
-    <!-- Row: Reason (full width) -->
-    <div class="bf-reason">
-      <label for="disputeReasonInput">Reason</label>
-      <textarea id="disputeReasonInput" placeholder="(No reason on record)"></textarea>
-    </div>
+  
 
   </div>
 `;
@@ -1063,6 +1082,42 @@ function ensureDisputeForm(sheet) {
     disputeVendorAmountInput  = disputeFormContainer.querySelector("#disputeVendorAmountInput");
 
     disputeReasonInput        = disputeFormContainer.querySelector("#disputeReasonInput");
+
+    subReasonInput            = disputeFormContainer.querySelector("#subReasonInput");
+    vendorReasonInput         = disputeFormContainer.querySelector("#vendorReasonInput");
+
+    const subReasonRow    = disputeFormContainer.querySelector("#bf-sub-reason-row");
+    const vendorReasonRow = disputeFormContainer.querySelector("#bf-vendor-reason-row");
+
+    // EXPOSED globally via outer-scope variable
+    updateConditionalReasonsUI = () => {
+      // regardless of whether a linked record is selected.
+      const subAmtVal    = parseCurrencyInput(disputeAmountInput?.value ?? "");
+      const vendorAmtVal = parseCurrencyInput(disputeVendorAmountInput?.value ?? "");
+
+      const needSubReason    = subAmtVal != null && subAmtVal > 0;
+      const needVendorReason = vendorAmtVal != null && vendorAmtVal > 0;
+
+      // Toggle visibility
+      subReasonRow?.classList.toggle("bf-hidden", !needSubReason);
+      vendorReasonRow?.classList.toggle("bf-hidden", !needVendorReason);
+
+      // Toggle required attributes for a11y
+      if (subReasonInput) {
+        subReasonInput.required = needSubReason;
+        subReasonInput.setAttribute("aria-required", String(needSubReason));
+      }
+      if (vendorReasonInput) {
+        vendorReasonInput.required = needVendorReason;
+        vendorReasonInput.setAttribute("aria-required", String(needVendorReason));
+      }
+    };
+
+    // Recalculate when user changes selection or amounts
+    disputeSubSelect?.addEventListener("change", updateConditionalReasonsUI);
+    disputeVendorSelect?.addEventListener("change", updateConditionalReasonsUI);
+    disputeAmountInput?.addEventListener("input", updateConditionalReasonsUI);
+    disputeVendorAmountInput?.addEventListener("input", updateConditionalReasonsUI);
 
     // Currency formatting UX
     const hookupMoney = (inp) => {
@@ -1085,7 +1140,6 @@ function ensureDisputeForm(sheet) {
     sheet.appendChild(disputeFormContainer);
   }
 }
-
 
 // Build subcontractor options from preloaded table
 function buildSubcontractorOptions(selectEl) {
@@ -1209,6 +1263,7 @@ function closeDecisionSheet(){
 
   document.removeEventListener("keydown", onSheetEsc);
 }
+
 function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
 
 /* =========================
@@ -1218,14 +1273,14 @@ function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
 // 🔧 CHANGED: helper to pick the vendor **linked-record** field safely
 function getVendorLinkFieldNameForPatch(rec) {
   const f = rec?.fields || {};
-  const candidates = ["Vendor to backcharge", "Vendor Brick and Mortar Location"];
+  const candidates = ["Vendor Brick and Mortar Location"];
   // Prefer whichever currently contains linked-record IDs
   for (const k of candidates) {
     const v = f[k];
     if (looksLikeLinkedIds(v)) return k;
   }
   // Fallback to the conventional linked field
-  return "Vendor to backcharge";
+  return "Vendor Brick and Mortar Location";
 }
 
 async function confirmDecision(decision) {
@@ -1273,19 +1328,57 @@ async function confirmDecision(decision) {
   fieldsToPatch[vendorLinkFieldName] = selectedVendorId ? [selectedVendorId] : [];
 
   // 🔧 CHANGED: patch **both** amount fields independently (no winner)
-  fieldsToPatch["Backcharge Amount"] = subAmtParsed == null ? null : subAmtParsed;
+  fieldsToPatch["Sub Backcharge Amount"] = subAmtParsed == null ? null : subAmtParsed;
 
-  // Only patch Vendor Amount to Backcharge if schema has it (avoid 422 on bases without it)
- // Always send it; Airtable omits empty fields from reads, but you can still write them.
-fieldsToPatch["Vendor Amount to Backcharge"] =
-  vendorAmtParsed == null ? null : vendorAmtParsed;
+  // Always send it; Airtable omits empty fields from reads, but you can still write them.
+  fieldsToPatch["Vendor Amount to Backcharge"] =
+    vendorAmtParsed == null ? null : vendorAmtParsed;
 
+  // === Conditional reason requirements ===
+  // 🔧 CHANGED: reasons are required whenever amount > 0 (regardless of selection)
+  const needSubReason    = (subAmtParsed != null && subAmtParsed > 0);
+  const needVendorReason = (vendorAmtParsed != null && vendorAmtParsed > 0);
 
-  // Only patch "Reason for dispute" when Dispute
+  // Block if required reasons are missing
+  if (needSubReason && !(subReasonInput?.value || "").trim()) {
+    alert("Please provide a Subcontractor Reason when an amount is entered.");
+    subReasonInput?.focus();
+    return;
+  }
+  if (needVendorReason && !(vendorReasonInput?.value || "").trim()) {
+    alert("Please provide a Vendor Reason when an amount is entered.");
+    vendorReasonInput?.focus();
+    return;
+  }
+
+  // === Prepare reason fields to patch ===
+  const recFields = rec?.fields || {};
+
+  // Sub reason field (prioritize an explicit sub-backcharge reason column)
+  const subReasonFieldName =
+    ["Sub Reason for Backcharge"]
+      .find(k => Object.prototype.hasOwnProperty.call(recFields, k)) || null;
+
+  if (needSubReason && subReasonFieldName) {
+    fieldsToPatch[subReasonFieldName] = (subReasonInput?.value || "").trim();
+  }
+
+  // Vendor reason field (only patch if column exists to avoid 422)
+  const vendorReasonFieldName =
+    ["Vendor Backcharge reason"]
+      .find(k => Object.prototype.hasOwnProperty.call(recFields, k)) || null;
+
+  if (needVendorReason && vendorReasonFieldName) {
+    fieldsToPatch[vendorReasonFieldName] = (vendorReasonInput?.value || "").trim();
+  }
+
+  // Keep existing behavior: when Dispute, also write the generic dispute reason if your base uses that.
   if (decision === "Dispute") {
-    const reasonFieldName = pickFieldName(rec?.fields || {}, ["Reason for dispute"]);
-    const editedReason = (disputeReasonInput?.value ?? "").trim();
-    fieldsToPatch[reasonFieldName] = editedReason || null;
+    const disputeReasonField = ["Reason for Builder Backcharge"]
+      .find(k => Object.prototype.hasOwnProperty.call(recFields, k));
+    if (disputeReasonField && disputeReasonInput) {
+      fieldsToPatch[disputeReasonField] = (disputeReasonInput.value || "").trim() || null;
+    }
   }
 
   console.log("📤 PATCH payload prepared:", fieldsToPatch);
@@ -1330,7 +1423,6 @@ fieldsToPatch["Vendor Amount to Backcharge"] =
     console.log("🏁 confirmDecision finished");
   }
 }
-
 
 /* =========================
    FILTER DROPDOWNS
@@ -1468,20 +1560,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 })();
 
-
-/* =========================
-   Background New Records Finder for Airtable
-   - Detects records not currently shown in UI
-   - Prompts user to load them
-   - Optional auto-load toggle
-========================= */
-
-/** REQUIRE: These three constants must already exist in your app. */
-// const AIRTABLE_API_KEY = "...";
-// const BASE_ID = "...";
-// const TABLE_ID = "...";
-
-
 /** Poll interval (ms) */
 const BACKGROUND_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 900000 ms = 15 minutes
 
@@ -1581,22 +1659,7 @@ function startBackgroundNewRecordsCheck() {
     }
   });
 
-  bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
-  // quick first run + a short countdown to it
-  setTimeout(tick, 1500);
-  startConsoleCountdown(1500);
-
-  // Pause timers when the tab is hidden; resume when visible
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      if (bgIntervalHandle) { clearInterval(bgIntervalHandle); bgIntervalHandle = null; }
-      stopConsoleCountdown();
-    } else {
-      if (!bgIntervalHandle) bgIntervalHandle = setInterval(tick, BACKGROUND_CHECK_INTERVAL_MS);
-      setTimeout(tick, 1500);
-      startConsoleCountdown(1500);
-    }
-  });
+  // (The duplicate setInterval/listener block has been deduped)
 }
 
 function showBgToast(text, ms = 3000) {
@@ -1606,8 +1669,6 @@ function showBgToast(text, ms = 3000) {
   clearTimeout(el._t);
   el._t = setTimeout(() => { el.style.display = "none"; }, ms);
 }
-
-
 
 function ensureBannerDom() {
   if (document.getElementById("new-records-banner")) return;
@@ -1655,7 +1716,6 @@ async function fetchUpdatedRecordsSince(sinceIso) {
   const params = new URLSearchParams();
   params.set("pageSize", "100");
   params.set("filterByFormula", filter);
-  // IMPORTANT: do NOT pass a view here — we need to see rows that moved out of scope.
 
   let all = [];
   let offset = null;
@@ -1676,9 +1736,6 @@ async function fetchUpdatedRecordsSince(sinceIso) {
 
   return all;
 }
-
-
-
 
 /**
  * Minimal banner UI: asks user to load unseen records.
@@ -1716,17 +1773,6 @@ function showNewRecordsBanner(unseenRecords) {
   }, { once: true });
 }
 
-
-/** Tiny toast for auto-loaded case */
-function showToast(text, ms = 3000) {
-  const el = document.getElementById("new-records-toast");
-  el.textContent = text;
-  el.style.display = "block";
-  clearTimeout(el._t);
-  el._t = setTimeout(() => { el.style.display = "none"; }, ms);
-}
-
-
 function renderNewRecords(records) {
   try {
     if (!Array.isArray(records) || records.length === 0) return;
@@ -1745,7 +1791,3 @@ function renderNewRecords(records) {
     console.error("renderNewRecords error:", e);
   }
 }
-
-
-
-
