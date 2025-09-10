@@ -12,6 +12,7 @@ const FIELD_ID_NUMBER   = "ID Number";  // must match Airtable exactly
 
 // Allowed values for GM Outcome edit control
 const GM_OPTIONS = [
+  "",
   "GM/ACM Approved",
   "GM/ACM Denied"
 ];

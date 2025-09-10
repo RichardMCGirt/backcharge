@@ -1,6 +1,3 @@
-/* =========================
-   CONFIG / CONSTANTS
-========================= */
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
 const TABLE_ID = "tblg98QfBxRd6uivq";
@@ -27,8 +24,7 @@ const tableRecords = {};
 const FORCE_AUTOLOAD = true;
 const VENDOR_BACKCHARGE_REASON_FIELD = "Vendor Backcharge Reason";
 const SUB_BACKCHARGE_REASON_FIELD    = "Sub Reason for Backcharge";
-
-       
+  
 let allRecords = []; 
 let activeTechFilter = null;
 let activeBranchFilter = null;
@@ -84,8 +80,6 @@ function startConsoleCountdown(durationMs) {
   print(); // initial log
   bgCountdownHandle = setInterval(print, 1000); // check each second, log only on minute change
 }
-
-
 
 function stopConsoleCountdown() {
   if (bgCountdownHandle) {
