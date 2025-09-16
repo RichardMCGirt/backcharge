@@ -205,6 +205,13 @@ async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
     if (a) a.textContent = `${count} image${count !== 1 ? "s" : ""}`;
   }
 
+  // ✅ Refresh thumbnails in the sheet if open
+  try {
+    if (document.getElementById("decisionSheet")?.classList.contains("open")) {
+      renderSheetThumbnails(recordId, data.fields?.Photos || []);
+    }
+  } catch (e) {}
+
   // optional: toast w/ job label if you have getJobLabel(recordId)
   if (typeof showToast === "function") {
     const label = (typeof getJobLabel === "function") ? getJobLabel(recordId) : "record";
@@ -213,9 +220,6 @@ async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
 
   return data.fields?.Photos || [];
 }
-
-
-
 
 async function handleUploadFiles(recordId, files) {
   if (!files || files.length === 0) return;
@@ -278,11 +282,18 @@ async function handleUploadFiles(recordId, files) {
     }
   }
 
-if (typeof showToast === "function") {
-  const label = (typeof getJobLabel === "function") ? getJobLabel(recordId) : "record";
-  showToast(`Photos saved for ${label}`);
-}
+  // ✅ Also refresh thumbnails in decision sheet if it’s open for this record
+  try {
+    const sheetOpen = document.getElementById("decisionSheet")?.classList.contains("open");
+    if (sheetOpen && (pendingRecordId === recordId || window.lastActiveCardId === recordId)) {
+      renderSheetThumbnails(recordId, updatedPhotos);
+    }
+  } catch (e) {}
 
+  if (typeof showToast === "function") {
+    const label = (typeof getJobLabel === "function") ? getJobLabel(recordId) : "record";
+    showToast(`Photos saved for ${label}`);
+  }
 }
 
 function openFilePickerForRecord(recordId) {
@@ -299,7 +310,6 @@ function openFilePickerForRecord(recordId) {
   };
   input.click();
 }
-
 
 function isBlank(v){ return v == null || (typeof v === "string" && v.trim() === ""); }
 function recordMatchesScope(rec){
@@ -428,10 +438,6 @@ function showToast(msg) {
   console.log('toast @', r.top, r.right, r.width, r.height);
 }
 window.showToast = showToast; // keep console access
-
-
-
-
 
 function showLoading() {
   const el = document.getElementById("loadingOverlay");
@@ -843,6 +849,7 @@ function renderReviews() {
     });
   }
 
+  const prev = document.createDocumentFragment();
   container.innerHTML = "";
 
   records.forEach(record => {
@@ -960,30 +967,29 @@ function renderReviews() {
 </div>
 `;
 
-   if (photoCount > 0) {
-  const a = card.querySelector(".photo-link");
-  a.addEventListener("click", (e) => { 
-    e.preventDefault(); 
-    openPhotoModal(photos, record.id); 
-  });
-}
+    if (photoCount > 0) {
+      const a = card.querySelector(".photo-link");
+      a.addEventListener("click", (e) => { 
+        e.preventDefault(); 
+        openPhotoModal(photos, record.id); 
+      });
+    }
 
     card.addEventListener("click", () => {
-  activateQuickbarFor(record);
-  pendingRecordName = jobName || "Unknown Job";
-  pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
-});
+      activateQuickbarFor(record);
+      pendingRecordName = jobName || "Unknown Job";
+      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
+    });
 
-card.addEventListener("focus", () => {
-  activateQuickbarFor(record);
-  pendingRecordName = jobName || "Unknown Job";
-  pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
-});
+    card.addEventListener("focus", () => {
+      activateQuickbarFor(record);
+      pendingRecordName = jobName || "Unknown Job";
+      pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
+    });
 
-card.addEventListener("touchstart", () => {
-  activateQuickbarFor(record);
-}, { passive: true });
-
+    card.addEventListener("touchstart", () => {
+      activateQuickbarFor(record);
+    }, { passive: true });
 
     card.addEventListener("click", () => { 
       lastActiveCardId = record.id; 
@@ -1008,8 +1014,10 @@ card.addEventListener("touchstart", () => {
       else if (dir === "left") { vibrate(15); openDecisionSheet(record.id, jobName, "Dispute"); }
     });
 
-    container.appendChild(card);
+    prev.appendChild(card);
   });
+
+  container.appendChild(prev);
 }
 async function fetchFreshRecord(recordId) {
   const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${recordId}`;
@@ -1181,7 +1189,62 @@ function openPhotoModal(photos, recordId) {
   modal.onclick = (event) => { if (event.target === modal) modal.style.display = "none"; };
 }
 
+/* =========================
+   ✅ SHEET THUMBNAILS (inside Approve/Dispute sheet)
+========================= */
+/**
+ * Render small thumbnails inside the Approve/Dispute sheet.
+ * Clicking any thumb opens the full gallery. Each has an inline delete (×).
+ */
+function renderSheetThumbnails(recordId, photos) {
+  const strip = document.getElementById("sheetThumbs");
+  if (!strip) return;
 
+  const list = Array.isArray(photos) ? photos : [];
+  strip.innerHTML = "";
+
+  if (list.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "sheet-thumb-empty";
+    empty.textContent = "No photos yet";
+    strip.appendChild(empty);
+    return;
+  }
+
+  list.forEach((p) => {
+    const wrap = document.createElement("div");
+    wrap.className = "sheet-thumb";
+
+    const img = document.createElement("img");
+    img.src = (p.thumbnails?.small?.url) ? p.thumbnails.small.url : p.url;
+    img.alt = "Photo";
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.addEventListener("click", () => openPhotoModal(list, recordId));
+
+    // small delete chip
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "sheet-thumb-del";
+    del.title = "Remove photo";
+    del.textContent = "×";
+    del.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const remaining = await deleteAirtablePhoto(recordId, p.id || p.url);
+        renderSheetThumbnails(recordId, remaining);
+      } catch (err) {
+        console.error(err);
+        if (typeof showToast === "function") showToast("Delete failed");
+      }
+    });
+
+    wrap.appendChild(img);
+    wrap.appendChild(del);
+    strip.appendChild(wrap);
+  });
+}
 
 /* =========================
    DISPUTE/APPROVE SHEET (editable sub, vendor, amount)
@@ -1200,68 +1263,76 @@ function openDecisionSheet(recordId, jobName, decision) {
   const approveBtn = document.getElementById("confirmApproveBtn");
   const disputeBtn = document.getElementById("confirmDisputeBtn");
   const backdrop = document.getElementById("sheetBackdrop");
-const quickbarEl = document.getElementById("quickbar");
-if (quickbarEl) quickbarEl.classList.add("show-upload");
-const rc = document.getElementById("reviewContainer");
-if (rc) rc.classList.add("has-quickbar-padding");
-const actionsRow = sheet.querySelector(".actions");
-if (actionsRow && !sheet.querySelector("#sheetAddPhotos")) {
-  const photosRow = document.createElement("div");
-  photosRow.className = "reason-photo-row";
-  photosRow.innerHTML =
-    "<div class=\"kv\"><b>Photos</b></div><div><button type=\"button\" id=\"sheetAddPhotos\">Attach Photos</button></div>";
-  actionsRow.parentNode.insertBefore(photosRow, actionsRow);
+  const quickbarEl = document.getElementById("quickbar");
+  if (quickbarEl) quickbarEl.classList.add("show-upload");
+  const rc = document.getElementById("reviewContainer");
+  if (rc) rc.classList.add("has-quickbar-padding");
+  const actionsRow = sheet.querySelector(".actions");
 
-  const sheetBtn = sheet.querySelector("#sheetAddPhotos");
-  // inside the Approve/Dispute sheet button handler
-sheetBtn.addEventListener("click", function (ev) {
-  ev.preventDefault();
-  const rid = (typeof pendingRecordId !== "undefined" && pendingRecordId) ? pendingRecordId : window.lastActiveCardId;
-  if (!rid) {
-    if (typeof showToast === "function") showToast("Tap a card first");
-    return;
-  }
+  // Insert Photos row + button + thumbnails strip once
+  if (actionsRow && !sheet.querySelector("#sheetAddPhotos")) {
+    const photosRow = document.createElement("div");
+    photosRow.className = "reason-photo-row";
+    photosRow.innerHTML =
+      `<div class="kv"><b>Photos</b></div>
+       <div class="sheet-photos-cell">
+         <button type="button" id="sheetAddPhotos">Attach Photos</button>
+         <!-- ✅ thumbnails live here -->
+         <div id="sheetThumbs" class="sheet-thumbs"></div>
+       </div>`;
+    actionsRow.parentNode.insertBefore(photosRow, actionsRow);
 
-  let input = document.getElementById("photoUploader");
-  if (!input) {
-    input = document.createElement("input");
-    input.type = "file";
-    input.id = "photoUploader";
-    input.accept = "image/*";
-    input.multiple = true;
-    input.hidden = true;
-    document.body.appendChild(input);
-  }
-
-  input.onchange = async (ev2) => {
-    const files = Array.from(ev2.target.files || []);
-    input.value = "";
-    try {
-      const attachments = [];
-      // your Dropbox upload loop populates attachments as [{url, filename}, ...]
-      for (const file of files) {
-        const info = await fetchDropboxToken(); // your dropbox.js helper
-        const link = info ? await uploadFileToDropbox(file, info.token, info) : null;
-        if (link) attachments.push({ url: link, filename: file.name });
+    const sheetBtn = sheet.querySelector("#sheetAddPhotos");
+    sheetBtn.addEventListener("click", async function (ev) {
+      ev.preventDefault();
+      const rid = (typeof pendingRecordId !== "undefined" && pendingRecordId) ? pendingRecordId : window.lastActiveCardId;
+      if (!rid) {
+        if (typeof showToast === "function") showToast("Tap a card first");
+        return;
       }
-      const updated = await patchAirtablePhotos(rid, attachments);
-      // 🔹 NEW: toast with job name from the sheet flow
-if (typeof showToast === "function") {
-  const label = (typeof getJobLabel === "function") ? getJobLabel(rid) : "record";
-  showToast(`Photos saved for ${label}`);
-}
 
-    } catch (err) {
-      console.error(err);
-      if (typeof showToast === "function") showToast("Upload failed");
-    }
-  };
+      let input = document.getElementById("photoUploader");
+      if (!input) {
+        input = document.createElement("input");
+        input.type = "file";
+        input.id = "photoUploader";
+        input.accept = "image/*";
+        input.multiple = true;
+        input.hidden = true;
+        document.body.appendChild(input);
+      }
 
-  input.click();
+      input.onchange = async (ev2) => {
+        const files = Array.from(ev2.target.files || []);
+        input.value = "";
+        try {
+          const attachments = [];
+          // your Dropbox upload loop populates attachments as [{url, filename}, ...]
+          for (const file of files) {
+            const info = await fetchDropboxToken(); // your dropbox.js helper
+            const link = info ? await uploadFileToDropbox(file, info.token, info) : null;
+            if (link) attachments.push({ url: link, filename: file.name });
+          }
+          const updated = await patchAirtablePhotos(rid, attachments);
 
+          // ✅ Refresh thumbnails in sheet immediately
+          renderSheetThumbnails(rid, updated);
 
-  });
-}
+          // 🔹 NEW: toast with job name from the sheet flow
+          if (typeof showToast === "function") {
+            const label = (typeof getJobLabel === "function") ? getJobLabel(rid) : "record";
+            showToast(`Photos saved for ${label}`);
+          }
+
+        } catch (err) {
+          console.error(err);
+          if (typeof showToast === "function") showToast("Upload failed");
+        }
+      };
+
+      input.click();
+    });
+  }
 
   ensureDisputeForm(sheet);
   // Show sheet form for BOTH decisions
@@ -1357,9 +1428,8 @@ if (typeof showToast === "function") {
       .find(k => Object.prototype.hasOwnProperty.call(recFields, k)) || null;
 
   if (vendorReasonInput) {
-  vendorReasonInput.value = rec?.fields?.[VENDOR_BACKCHARGE_REASON_FIELD] || "";
-}
-
+    vendorReasonInput.value = rec?.fields?.[VENDOR_BACKCHARGE_REASON_FIELD] || "";
+  }
 
   // Ensure visibility/required state matches current selections and amounts
   try { updateConditionalReasonsUI && updateConditionalReasonsUI(); } catch {}
@@ -1377,6 +1447,12 @@ if (typeof showToast === "function") {
   approveBtn.textContent = "✔ Approved";
   disputeBtn.textContent = "✖ Dispute";
 
+  // ✅ Render current thumbnails when the sheet opens
+  try {
+    const photos = rec?.fields?.Photos || [];
+    renderSheetThumbnails(recordId, photos);
+  } catch (e) {}
+
   sheet.classList.add("open");
   if (backdrop) backdrop.classList.add("show");
 
@@ -1392,8 +1468,6 @@ if (typeof showToast === "function") {
 /* =========================
    BOTTOM SHEET CONFIRM
 ========================= */
-
-
 
 function ensureBackchargeFormStyles() {
   if (document.getElementById("bf-styles")) return;
@@ -1467,6 +1541,51 @@ function ensureBackchargeFormStyles() {
         margin-bottom: 6px;
         align-self: start;
       }
+    }
+
+    /* ✅ SHEET THUMBNAILS */
+    .sheet-photos-cell { display:flex; flex-direction:column; gap:8px; }
+    .sheet-thumbs {
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      padding-top:4px;
+    }
+    .sheet-thumb {
+      position:relative;
+      width:64px;
+      height:64px;
+      border:1px solid #cbd5e1;
+      border-radius:10px;
+      overflow:hidden;
+      background:#fff;
+      box-shadow:0 1px 2px rgba(0,0,0,.06);
+    }
+    .sheet-thumb img {
+      width:100%;
+      height:100%;
+      object-fit:cover;
+      display:block;
+      cursor:pointer;
+    }
+    .sheet-thumb-del {
+      position:absolute;
+      top:2px;
+      right:2px;
+      width:20px;
+      height:20px;
+      border:none;
+      border-radius:50%;
+      background:rgba(0,0,0,.6);
+      color:#fff;
+      font-weight:700;
+      line-height:20px;
+      text-align:center;
+      cursor:pointer;
+    }
+    .sheet-thumb-empty {
+      font-size:13px;
+      opacity:.8;
     }
   `;
   document.head.appendChild(style);
@@ -1698,10 +1817,10 @@ function closeDecisionSheet(){
   sheet.classList.remove("open");
   sheet.classList.remove("dispute-mode");
   if (backdrop) backdrop.classList.remove("show");
-const quickbarEl = document.getElementById("quickbar");
-if (quickbarEl) quickbarEl.classList.remove("show-upload");
-const rc = document.getElementById("reviewContainer");
-if (rc) rc.classList.remove("has-quickbar-padding");
+  const quickbarEl = document.getElementById("quickbar");
+  if (quickbarEl) quickbarEl.classList.remove("show-upload");
+  const rc = document.getElementById("reviewContainer");
+  if (rc) rc.classList.remove("has-quickbar-padding");
 
   approveBtn.classList.remove("attn");
   disputeBtn.classList.remove("attn");
@@ -1727,6 +1846,7 @@ if (rc) rc.classList.remove("has-quickbar-padding");
 }
 
 function onSheetEsc(e){ if (e.key === "Escape") closeDecisionSheet(); }
+
 
 /* =========================
    PATCH TO AIRTABLE
