@@ -86,6 +86,15 @@ function uniqueByURL(arr) {
   });
 }
 
+// 🔹 NEW: helper to show a friendly job label in toasts
+function getJobLabel(recordId) {
+  const rec = getRecordById(recordId);
+  const jobName = rec?.fields?.["Job Name"] || rec?.fields?.Name || "Record";
+  const idNumber = rec?.fields?.["ID Number"];
+  const idFrag = (idNumber !== undefined && idNumber !== null) ? `ID #${idNumber} – ` : "";
+  return `${idFrag}${jobName}`;
+}
+
 async function patchAirtablePhotos(recordId, newAttachments) {
   let existing = [];
   try {
@@ -141,6 +150,7 @@ async function patchAirtablePhotos(recordId, newAttachments) {
   return data.fields?.Photos || [];
 }
 
+// REPLACE the payload building + PATCH section in deleteAirtablePhoto with this version
 async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
   let existing = [];
   try {
@@ -150,17 +160,19 @@ async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
     console.warn("Could not fetch fresh record; aborting delete.", e);
     throw e;
   }
-
   if (!existing.length) return [];
 
+  // remove the matching attachment
   const remaining = existing.filter(p => {
     const sameId = p?.id && p.id === photoIdOrUrl;
     const sameUrl = p?.url && p.url === photoIdOrUrl;
     return !sameId && !sameUrl;
   });
 
-  // Keep remaining by id when possible; if somehow a remaining item has no id, keep by url
-  const payload = remaining.map(p => (p.id ? { id: p.id } : { url: p.url, filename: p.filename }));
+  // IMPORTANT: keep only by {id}. Using {url} here can re-attach instead of keeping.
+  const payload = remaining
+    .filter(p => p && p.id)
+    .map(p => ({ id: p.id }));
 
   const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${recordId}`;
   const res = await fetch(url, {
@@ -179,14 +191,13 @@ async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
 
   const data = await res.json();
 
+  // update in-memory + UI counter
   if (Array.isArray(window.allRecords)) {
     const idx = allRecords.findIndex(r => r.id === recordId);
     if (idx !== -1) {
       allRecords[idx].fields.Photos = data.fields?.Photos || [];
     }
   }
-
-  // Update the card counter if present
   const card = document.querySelector(`.review-card[data-id="${recordId}"]`);
   if (card) {
     const a = card.querySelector(".photo-link");
@@ -194,9 +205,15 @@ async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
     if (a) a.textContent = `${count} image${count !== 1 ? "s" : ""}`;
   }
 
-  if (typeof showToast === "function") showToast("Image removed");
+  // optional: toast w/ job label if you have getJobLabel(recordId)
+  if (typeof showToast === "function") {
+    const label = (typeof getJobLabel === "function") ? getJobLabel(recordId) : "record";
+    showToast(`Image removed from ${label}`);
+  }
+
   return data.fields?.Photos || [];
 }
+
 
 
 
@@ -261,7 +278,11 @@ async function handleUploadFiles(recordId, files) {
     }
   }
 
-  if (typeof showToast === "function") showToast("Photos saved");
+if (typeof showToast === "function") {
+  const label = (typeof getJobLabel === "function") ? getJobLabel(recordId) : "record";
+  showToast(`Photos saved for ${label}`);
+}
+
 }
 
 function openFilePickerForRecord(recordId) {
@@ -328,12 +349,90 @@ function asLinkedIds(val) {
   return Array.isArray(val) ? val.filter(v => typeof v === "string") : [];
 }
 
-function showToast(message) {
-  const toast = document.getElementById("toast");
-  toast.textContent = message;
-  toast.className = "show";
-  setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 2000);
+// REPLACE your existing showToast with this version
+/* =========================
+   UTIL / UI HELPERS
+========================= */
+// REPLACE your existing showToast with this version
+function showToast(msg) {
+  // Ensure a topmost host and keep it as the LAST child of <body>
+  let host = document.getElementById('toast-root');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-root';
+    document.body.appendChild(host);
+  } else if (host !== document.body.lastElementChild) {
+    document.body.appendChild(host); // re-append so it paints last
+  }
+
+  // Host must sit above everything and ignore pointer events
+  const H = (p, v) => host.style.setProperty(p, v, 'important');
+  H('position', 'fixed');
+  H('left', '0');
+  H('right', '0');
+  H('top', '0');
+  H('bottom', 'auto');
+  H('z-index', '2147483647');   // max safe
+  H('pointer-events', 'none');
+  H('display', 'block');
+
+  // The toast bubble itself
+  let t = document.getElementById('toast');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'toast';
+    host.appendChild(t);
+  } else if (t.parentNode !== host) {
+    host.appendChild(t);
+  }
+
+  t.textContent = msg || '';
+
+  // Hard override critical props (beats app CSS)
+  const S = (p, v) => t.style.setProperty(p, v, 'important');
+  S('position', 'absolute');
+  S('top', '16px');
+  S('right', '16px');
+  S('left', 'auto');
+  S('bottom', 'auto');
+  S('display', 'block');
+  S('opacity', '1');
+
+  // Non-critical styling
+  Object.assign(t.style, {
+    margin: '0',
+    transform: 'none',
+    maxWidth: '90vw',
+    padding: '10px 14px',
+    borderRadius: '10px',
+    background: '#111827',
+    color: '#e5e7eb',
+    fontWeight: '600',
+    lineHeight: '1.25',
+    boxShadow: '0 8px 24px rgba(0,0,0,.25)',
+    pointerEvents: 'none',
+    transition: 'opacity .18s ease'
+  });
+
+  // Show for 2s, then fade and fully hide
+  clearTimeout(t._t1); clearTimeout(t._t2);
+  t._t1 = setTimeout(() => {
+    t.style.setProperty('opacity', '0', 'important');
+    t._t2 = setTimeout(() => {
+      t.style.setProperty('display', 'none', 'important');
+    }, 200);
+  }, 2000);
+
+  // Debug: log its on-screen box
+  const r = t.getBoundingClientRect();
+  console.log('toast @', r.top, r.right, r.width, r.height);
 }
+window.showToast = showToast; // keep console access
+
+
+
+
+
 function showLoading() {
   const el = document.getElementById("loadingOverlay");
   if (el) el.style.display = "flex";
@@ -1146,7 +1245,12 @@ sheetBtn.addEventListener("click", function (ev) {
         if (link) attachments.push({ url: link, filename: file.name });
       }
       const updated = await patchAirtablePhotos(rid, attachments);
-      if (typeof showToast === "function") showToast("Photos saved");
+      // 🔹 NEW: toast with job name from the sheet flow
+if (typeof showToast === "function") {
+  const label = (typeof getJobLabel === "function") ? getJobLabel(rid) : "record";
+  showToast(`Photos saved for ${label}`);
+}
+
     } catch (err) {
       console.error(err);
       if (typeof showToast === "function") showToast("Upload failed");
@@ -1288,6 +1392,9 @@ sheetBtn.addEventListener("click", function (ev) {
 /* =========================
    BOTTOM SHEET CONFIRM
 ========================= */
+
+
+
 function ensureBackchargeFormStyles() {
   if (document.getElementById("bf-styles")) return;
   const style = document.createElement("style");
@@ -2096,7 +2203,7 @@ function ensureBannerDom() {
     #new-records-banner .nb-load{background:#22c55e;color:#052e10;border-color:#16a34a}
     #new-records-banner .nb-dismiss{background:#0b1220;color:#cbd5e1;border-color:#334155}
     #new-records-banner label.nb-autoload{display:inline-flex;align-items:center;gap:8px;font-size:.9rem;opacity:.9}
-    #new-records-toast{position:fixed;right:12px;bottom:12px;z-index:9999;display:none;background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+    #new-records-toast{position:fixed;right:12px;top:12px;z-index:9999;display:none;background:#111827;color:#e5e7eb;border:1px solid #1f2937;border-radius:12px;padding:10px 12px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
   `;
   document.head.appendChild(css);
 
