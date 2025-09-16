@@ -1,6 +1,12 @@
+import { fetchDropboxToken, uploadFileToDropbox } from "./dropbox.js";
+
 const AIRTABLE_API_KEY = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
 const BASE_ID = "appQDdkj6ydqUaUkE";
 const TABLE_ID = "tblg98QfBxRd6uivq";
+// Make Airtable creds visible to dropbox.js
+window.env = window.env || {};
+window.env.AIRTABLE_BASE_ID = BASE_ID;
+window.env.AIRTABLE_API_KEY = AIRTABLE_API_KEY;
 
 const SUBCONTRACTOR_TABLE = "tblgsUP8po27WX7Hb"; // “Subcontractor Company Name”
 const CUSTOMER_TABLE      = "tblQ7yvLoLKZlZ9yU"; // “Client Name”
@@ -49,6 +55,231 @@ let updateConditionalReasonsUI = null;
 /* =========================
    UTIL / UI HELPERS
 ========================= */
+const quickbar = document.getElementById('quickbar');
+const quickbarLabel = document.getElementById('quickbarLabel');
+function activateQuickbarFor(rec){
+  window.lastActiveCardId = rec.id;
+  if (quickbarLabel) quickbarLabel.textContent = rec.fields["Job Name"] || rec.id;
+  if (quickbar) quickbar.classList.add('show'); // makes it visible
+}
+function ensurePhotoUploader() {
+  let input = document.getElementById("photoUploader");
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "file";
+    input.id = "photoUploader";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.hidden = true;
+    document.body.appendChild(input);
+  }
+  return input;
+}
+
+function uniqueByURL(arr) {
+  const seen = new Set();
+  return arr.filter(a => {
+    const u = a?.url || "";
+    if (seen.has(u)) return false;
+    seen.add(u);
+    return true;
+  });
+}
+
+async function patchAirtablePhotos(recordId, newAttachments) {
+  let existing = [];
+  try {
+    const fresh = await fetchFreshRecord(recordId);
+    existing = Array.isArray(fresh?.fields?.Photos) ? fresh.fields.Photos : [];
+  } catch (e) {
+    console.warn("Could not fetch fresh record; treating as empty Photos.", e);
+  }
+
+  // Build a quick set of existing URLs (de-dupe guard)
+  const existingUrlSet = new Set(existing.map(p => p && p.url).filter(Boolean));
+
+  // Normalize and filter new attachments
+  const toAddUrlObjs = (Array.isArray(newAttachments) ? newAttachments : [])
+    .filter(a => a && a.url)
+    .filter(a => !existingUrlSet.has(a.url))
+    .map(a => ({ url: a.url, filename: a.filename || undefined }));
+
+  // Payload rule:
+  // - Keep current photos by {id} (must be the ids already on THIS record)
+  // - Append brand new ones by {url, filename}
+  const keepById = existing
+    .filter(p => p && p.id)     // only valid ids from THIS record
+    .map(p => ({ id: p.id }));  // Airtable requires {id} for existing
+
+  const payload = keepById.concat(toAddUrlObjs);
+
+  const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${recordId}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ fields: { Photos: payload } })
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Airtable PATCH failed (${res.status}) ${t}`);
+  }
+
+  const data = await res.json();
+
+  // Keep in-memory cache synced if you keep one
+  if (Array.isArray(window.allRecords)) {
+    const idx = allRecords.findIndex(r => r.id === recordId);
+    if (idx !== -1) {
+      allRecords[idx].fields.Photos = data.fields?.Photos || [];
+    }
+  }
+
+  return data.fields?.Photos || [];
+}
+
+async function deleteAirtablePhoto(recordId, photoIdOrUrl) {
+  let existing = [];
+  try {
+    const fresh = await fetchFreshRecord(recordId);
+    existing = Array.isArray(fresh?.fields?.Photos) ? fresh.fields.Photos : [];
+  } catch (e) {
+    console.warn("Could not fetch fresh record; aborting delete.", e);
+    throw e;
+  }
+
+  if (!existing.length) return [];
+
+  const remaining = existing.filter(p => {
+    const sameId = p?.id && p.id === photoIdOrUrl;
+    const sameUrl = p?.url && p.url === photoIdOrUrl;
+    return !sameId && !sameUrl;
+  });
+
+  // Keep remaining by id when possible; if somehow a remaining item has no id, keep by url
+  const payload = remaining.map(p => (p.id ? { id: p.id } : { url: p.url, filename: p.filename }));
+
+  const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${recordId}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${AIRTABLE_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ fields: { Photos: payload } })
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Airtable PATCH failed (${res.status}) ${t}`);
+  }
+
+  const data = await res.json();
+
+  if (Array.isArray(window.allRecords)) {
+    const idx = allRecords.findIndex(r => r.id === recordId);
+    if (idx !== -1) {
+      allRecords[idx].fields.Photos = data.fields?.Photos || [];
+    }
+  }
+
+  // Update the card counter if present
+  const card = document.querySelector(`.review-card[data-id="${recordId}"]`);
+  if (card) {
+    const a = card.querySelector(".photo-link");
+    const count = (data.fields?.Photos || []).length;
+    if (a) a.textContent = `${count} image${count !== 1 ? "s" : ""}`;
+  }
+
+  if (typeof showToast === "function") showToast("Image removed");
+  return data.fields?.Photos || [];
+}
+
+
+
+async function handleUploadFiles(recordId, files) {
+  if (!files || files.length === 0) return;
+  if (typeof showToast === "function") showToast("Uploading…"); // you already use a toast element (see review.css)
+
+  // Get Dropbox token and app creds from your Airtable "tokens" row
+  const info = await fetchDropboxToken();
+  const token = info?.token;
+  if (!token) {
+    if (typeof showToast === "function") showToast("Dropbox token missing");
+    throw new Error("Missing Dropbox token/app creds");
+  }
+
+  // Upload each file to Dropbox and collect direct links
+  const attachments = [];
+  for (const file of files) {
+    const link = await uploadFileToDropbox(file, token, info);
+    if (link) {
+      attachments.push({ url: link, filename: file.name });
+    }
+  }
+
+  if (attachments.length === 0) {
+    if (typeof showToast === "function") showToast("No files uploaded");
+    return;
+  }
+
+  // PATCH into Airtable Photos (same table as the rest of the payload)
+  const updatedPhotos = await patchAirtablePhotos(recordId, attachments);
+
+  // Update the UI on the active card
+  const card = document.querySelector(`.review-card[data-id="${recordId}"]`);
+  if (card) {
+    let a = card.querySelector(".photo-link");
+    const count = Array.isArray(updatedPhotos) ? updatedPhotos.length : 0;
+
+    if (a) {
+      a.textContent = `${count} image${count !== 1 ? "s" : ""}`;
+    } else {
+      // If there wasn't a photo-link before, add one next to the issue text
+      const reasonRow = card.querySelector(".reason-photo-row");
+      if (reasonRow) {
+        reasonRow.insertAdjacentHTML(
+          "beforeend",
+          `<div class="photos">
+            <a href="#" class="photo-link" data-id="${recordId}">
+              ${count} image${count !== 1 ? "s" : ""}
+            </a>
+          </div>`
+        );
+        a = card.querySelector(".photo-link");
+        if (a) {
+          a.addEventListener("click", (e) => {
+            e.preventDefault();
+            const rec = typeof getRecordById === "function" ? getRecordById(recordId) : null;
+            openPhotoModal(rec?.fields?.Photos || []);
+          });
+        }
+      }
+    }
+  }
+
+  if (typeof showToast === "function") showToast("Photos saved");
+}
+
+function openFilePickerForRecord(recordId) {
+  const input = ensurePhotoUploader();
+  input.onchange = async (e) => {
+    const files = Array.from(e.target.files || []);
+    input.value = ""; // reset so a second upload of the same file name still fires change
+    try {
+      await handleUploadFiles(recordId, files);
+    } catch (err) {
+      console.error(err);
+      if (typeof showToast === "function") showToast("Upload failed");
+    }
+  };
+  input.click();
+}
+
+
 function isBlank(v){ return v == null || (typeof v === "string" && v.trim() === ""); }
 function recordMatchesScope(rec){
   const f = rec?.fields || {};
@@ -630,13 +861,30 @@ function renderReviews() {
 </div>
 `;
 
-    if (photoCount > 0) {
-      const a = card.querySelector(".photo-link");
-      a.addEventListener("click", (e) => { 
-        e.preventDefault(); 
-        openPhotoModal(photos); 
-      });
-    }
+   if (photoCount > 0) {
+  const a = card.querySelector(".photo-link");
+  a.addEventListener("click", (e) => { 
+    e.preventDefault(); 
+    openPhotoModal(photos, record.id); 
+  });
+}
+
+    card.addEventListener("click", () => {
+  activateQuickbarFor(record);
+  pendingRecordName = jobName || "Unknown Job";
+  pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
+});
+
+card.addEventListener("focus", () => {
+  activateQuickbarFor(record);
+  pendingRecordName = jobName || "Unknown Job";
+  pendingRecordIdNumber = (idNumber !== undefined && idNumber !== null) ? idNumber : null;
+});
+
+card.addEventListener("touchstart", () => {
+  activateQuickbarFor(record);
+}, { passive: true });
+
 
     card.addEventListener("click", () => { 
       lastActiveCardId = record.id; 
@@ -663,6 +911,18 @@ function renderReviews() {
 
     container.appendChild(card);
   });
+}
+async function fetchFreshRecord(recordId) {
+  const url = `https://api.airtable.com/v0/${BASE_ID}/${TABLE_ID}/${recordId}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` }
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(`Fetch record failed (${res.status}) ${t}`);
+  }
+  const data = await res.json();
+  return data; // shape: { id, fields: { Photos: [...] , ... } }
 }
 
 /* =========================
@@ -779,24 +1039,50 @@ function attachSwipeHandlers(el, onCommit){
 /* =========================
    PHOTO MODAL
 ========================= */
-function openPhotoModal(photos) {
+function openPhotoModal(photos, recordId) {
   const modal = document.getElementById("photoModal");
   const gallery = document.getElementById("photoGallery");
   const closeBtn = modal.querySelector(".close");
 
   gallery.innerHTML = "";
+
   photos.forEach(p => {
+    const tile = document.createElement("div");
+    tile.className = "photo-tile";
+
     const img = document.createElement("img");
     img.src = p.url;
     img.alt = "Field Photo";
     img.classList.add("modal-photo");
-    gallery.appendChild(img);
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "delete-photo";
+    del.textContent = "Delete";
+
+    del.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      try {
+        const remaining = await deleteAirtablePhoto(recordId, p.id || p.url);
+        openPhotoModal(remaining, recordId); // re-render
+      } catch (e) {
+        console.error(e);
+        if (typeof showToast === "function") showToast("Delete failed");
+      }
+    });
+
+    tile.appendChild(img);
+    tile.appendChild(del);
+    gallery.appendChild(tile);
   });
 
   modal.style.display = "flex";
-  closeBtn.onclick = () => modal.style.display = "none";
+  closeBtn.onclick = () => (modal.style.display = "none");
   modal.onclick = (event) => { if (event.target === modal) modal.style.display = "none"; };
 }
+
+
 
 /* =========================
    DISPUTE/APPROVE SHEET (editable sub, vendor, amount)
@@ -815,6 +1101,63 @@ function openDecisionSheet(recordId, jobName, decision) {
   const approveBtn = document.getElementById("confirmApproveBtn");
   const disputeBtn = document.getElementById("confirmDisputeBtn");
   const backdrop = document.getElementById("sheetBackdrop");
+const quickbarEl = document.getElementById("quickbar");
+if (quickbarEl) quickbarEl.classList.add("show-upload");
+const rc = document.getElementById("reviewContainer");
+if (rc) rc.classList.add("has-quickbar-padding");
+const actionsRow = sheet.querySelector(".actions");
+if (actionsRow && !sheet.querySelector("#sheetAddPhotos")) {
+  const photosRow = document.createElement("div");
+  photosRow.className = "reason-photo-row";
+  photosRow.innerHTML =
+    "<div class=\"kv\"><b>Photos</b></div><div><button type=\"button\" id=\"sheetAddPhotos\">Attach Photos</button></div>";
+  actionsRow.parentNode.insertBefore(photosRow, actionsRow);
+
+  const sheetBtn = sheet.querySelector("#sheetAddPhotos");
+  // inside the Approve/Dispute sheet button handler
+sheetBtn.addEventListener("click", function (ev) {
+  ev.preventDefault();
+  const rid = (typeof pendingRecordId !== "undefined" && pendingRecordId) ? pendingRecordId : window.lastActiveCardId;
+  if (!rid) {
+    if (typeof showToast === "function") showToast("Tap a card first");
+    return;
+  }
+
+  let input = document.getElementById("photoUploader");
+  if (!input) {
+    input = document.createElement("input");
+    input.type = "file";
+    input.id = "photoUploader";
+    input.accept = "image/*";
+    input.multiple = true;
+    input.hidden = true;
+    document.body.appendChild(input);
+  }
+
+  input.onchange = async (ev2) => {
+    const files = Array.from(ev2.target.files || []);
+    input.value = "";
+    try {
+      const attachments = [];
+      // your Dropbox upload loop populates attachments as [{url, filename}, ...]
+      for (const file of files) {
+        const info = await fetchDropboxToken(); // your dropbox.js helper
+        const link = info ? await uploadFileToDropbox(file, info.token, info) : null;
+        if (link) attachments.push({ url: link, filename: file.name });
+      }
+      const updated = await patchAirtablePhotos(rid, attachments);
+      if (typeof showToast === "function") showToast("Photos saved");
+    } catch (err) {
+      console.error(err);
+      if (typeof showToast === "function") showToast("Upload failed");
+    }
+  };
+
+  input.click();
+
+
+  });
+}
 
   ensureDisputeForm(sheet);
   // Show sheet form for BOTH decisions
@@ -1248,6 +1591,10 @@ function closeDecisionSheet(){
   sheet.classList.remove("open");
   sheet.classList.remove("dispute-mode");
   if (backdrop) backdrop.classList.remove("show");
+const quickbarEl = document.getElementById("quickbar");
+if (quickbarEl) quickbarEl.classList.remove("show-upload");
+const rc = document.getElementById("reviewContainer");
+if (rc) rc.classList.remove("has-quickbar-padding");
 
   approveBtn.classList.remove("attn");
   disputeBtn.classList.remove("attn");
@@ -1859,3 +2206,48 @@ function renderNewRecords(records) {
     console.error("renderNewRecords error:", e);
   }
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  const qbUpload = document.getElementById("qbUpload");
+  if (qbUpload) {
+    qbUpload.addEventListener("click", () => {
+      if (!window.lastActiveCardId) {
+        if (typeof showToast === "function") showToast("Tap a card first");
+        return;
+      }
+      openFilePickerForRecord(window.lastActiveCardId);
+    });
+  }
+});
+document.addEventListener("DOMContentLoaded", function () {
+  const btn = document.getElementById("qbUpload");
+  if (btn) {
+    btn.addEventListener("click", function (e) {
+      e.preventDefault();
+      if (!window.lastActiveCardId) {
+        if (typeof showToast === "function") showToast("Tap a card first");
+        return;
+      }
+      if (typeof openFilePickerForRecord === "function") {
+        openFilePickerForRecord(window.lastActiveCardId);
+      } else if (typeof handleUploadFiles === "function") {
+        let input = document.getElementById("photoUploader");
+        if (!input) {
+          input = document.createElement("input");
+          input.type = "file";
+          input.id = "photoUploader";
+          input.accept = "image/*";
+          input.multiple = true;
+          input.hidden = true;
+          document.body.appendChild(input);
+        }
+        input.onchange = async (ev) => {
+          const files = Array.from(ev.target.files || []);
+          input.value = "";
+          await handleUploadFiles(window.lastActiveCardId, files);
+        };
+        input.click();
+      }
+    });
+  }
+});

@@ -41,10 +41,11 @@
 
 <!-- Sticky Quick Actions (contextual to last tapped/active card) -->
 <div class="quickbar" id="quickbar" role="region" aria-live="polite">
-  <div class="label" id="quickbarLabel">Select a job…</div>
-  <button class="dispute" id="qbDispute" aria-label="Dispute">Dispute</button>
-  <button class="approve" id="qbApprove" aria-label="Approve">Approve</button>
+
+  <button class="upload" id="qbUpload" aria-label="Add Photos">Add Photos</button>
 </div>
+
+
 
 <!-- Bottom Sheet Confirmation -->
 <div class="sheet" id="decisionSheet" aria-modal="true" role="dialog">
@@ -83,7 +84,21 @@
 <!-- Loading overlay -->
 <div id="loadingOverlay"><div class="spinner" aria-hidden="true"></div></div>
 <div id="sheetBackdrop"></div>
+<input type="file" id="photoUploader" accept="image/*" multiple hidden />
 
-  <script src="review.js"></script>
+<script>
+  // Records base (your Backcharge list)
+  window.env = window.env || {};
+  window.env.AIRTABLE_BASE_ID  = "appQDdkj6ydqUaUkE";   // records base
+  window.env.AIRTABLE_API_KEY  = "pat6QyOfQCQ9InhK4.4b944a38ad4c503a6edd9361b2a6c1e7f02f216ff05605f7690d3adb12c94a3c";
+
+  // Dropbox token base (where the token row lives)
+  window.env.DROPBOX_TOKEN_BASE_ID   = "appO21PVRA4Qa087I";
+  window.env.DROPBOX_TOKEN_TABLE_ID  = "tbl6EeKPsNuEvt5yJ";
+  window.env.DROPBOX_TOKEN_API_KEY   = "patXTUS9m8os14OO1.6a81b7bc4dd88871072fe71f28b568070cc79035bc988de3d4228d52239c8238";
+</script>
+
+<script type="module" src="review.js"></script>
+
 </body>
 </html>

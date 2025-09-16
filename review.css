@@ -557,3 +557,40 @@ img, video {
     padding: 10px 12px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.25);
   }
+
+  /* Hide Add Photos by default; show only when sheet is open */
+.quickbar .upload { display: none; }
+.quickbar.show-upload .upload { display: inline-flex; }
+
+/* Give the scroll area breathing room when the quickbar is visible */
+#reviewContainer.has-quickbar-padding { padding-bottom: calc(100px + env(safe-area-inset-bottom)); }
+
+/* Respect safe-area so the bar doesn't sit under the iOS home bar */
+.quickbar { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+
+/* Ensure the sheet is above the quickbar to prevent overlap */
+.sheet { z-index: 1000; }
+.quickbar { z-index: 900; }
+.photo-tile {
+  position: relative;
+  display: inline-block;
+}
+
+.delete-photo {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #2b2b2b;
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+.delete-photo:hover {
+  opacity: 1;
+  background: #3a3a3a;
+}
